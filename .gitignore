@@ -35,3 +35,6 @@ next-env.d.ts
 .env*
 
 /src/generated/prisma
+
+# GAIDE-Trace local store (connect to a data repo if you want it versioned)
+.gaide-trace/
