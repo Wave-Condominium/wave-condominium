@@ -6,84 +6,103 @@
       "reason": "Upgrade major necessário (14 -> 16) para corrigir CVEs Critical (inclui RCE não-autenticada). Risco alto de regressão em toda a aplicação — tratado como prioridade própria, não como ajuste dentro do SEG-013.",
       "cardRef": "SEG-014",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "postcss",
       "reason": "Vem embutido na árvore de dependências do Next (next/node_modules/postcss) — resolve junto com o upgrade do SEG-014.",
       "cardRef": "SEG-014",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "glob",
       "reason": "Dependência transitiva do eslint-config-next (ferramenta de lint, não roda em produção). Upgrade junto com o Next.",
       "cardRef": "SEG-014",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "toml",
       "reason": "Dependência transitiva do @stellar/stellar-sdk (usado na âncora de integridade de Boletos/Manutenção/Auditoria). Upgrade para 17.1.0 é breaking change — precisa de teste dedicado da âncora antes de aplicar.",
       "cardRef": "SEG-016",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "deepmerge-ts",
       "reason": "Dependência transitiva do Prisma CLI (ferramenta de build/migração, não código de runtime). Upgrade do Prisma é breaking change a testar separadamente (migrations, seed).",
       "cardRef": "SEG-017",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "prisma",
       "reason": "Herda a severidade de deepmerge-ts (via @prisma/config). Mesmo card de correção.",
       "cardRef": "SEG-017",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "@prisma/config",
       "reason": "Herda a severidade de deepmerge-ts. Mesmo card de correção.",
       "cardRef": "SEG-017",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "@stellar/stellar-sdk",
       "reason": "Herda a severidade de toml (dependência transitiva). Usado na âncora de integridade de Boletos/Manutenção/Auditoria — upgrade para 17.1.0 precisa de teste dedicado da âncora.",
       "cardRef": "SEG-016",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "eslint-config-next",
       "reason": "Herda a severidade de glob (ferramenta de lint, não roda em produção). Upgrade junto com o Next.",
       "cardRef": "SEG-014",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "@next/eslint-plugin-next",
       "reason": "Herda a severidade de glob. Mesmo card de correção.",
       "cardRef": "SEG-014",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "vite",
       "reason": "Cadeia de ferramentas de teste (Vitest), não roda em produção. Upgrade para vitest@5.0.1 é breaking change (config do Vitest) — precisa validar as 241 suítes de teste antes de aplicar.",
       "cardRef": "SEG-018",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
     },
     {
       "package": "vitest",
       "reason": "Mesmo motivo do vite — upgrade major do runner de teste, validar as 241 suítes antes de aplicar.",
       "cardRef": "SEG-018",
       "addedAt": "2026-09-15",
-      "expiresAt": "2026-09-29"
+      "expiresAt": "2026-11-23",
+      "renewedAt": "2026-11-09"
+    },
+    {
+      "package": "tinypool",
+      "reason": "Dependencia transitiva do Vitest (pool de workers de teste, nao roda em producao). As duas advisories Critical de prototype pollution com caminho para RCE (GHSA-5gmw-xhrv-c9v3, GHSA-85c8-ppgw-ccpr) exigem tinypool >= 2.1.2, mas o Vitest 2.1.9 declara tinypool ^1.0.1 — forcar o major quebraria o runner de testes. Resolve junto com o upgrade do Vitest 2 -> 5 ja rastreado no SEG-018.",
+      "cardRef": "SEG-018",
+      "addedAt": "2026-11-09",
+      "expiresAt": "2026-11-23"
     }
   ]
 }
