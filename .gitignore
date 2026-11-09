@@ -39,3 +39,6 @@ next-env.d.ts
 
 # SÍN-031: saída transitória do dedupe de e-mails (não versionar)
 scripts/pending-memberships.json
+
+# GAIDE-Trace local store (connect to a data repo if you want it versioned)
+.gaide-trace/
