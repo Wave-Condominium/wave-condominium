@@ -182,6 +182,21 @@ against the production database. Full steps and environment variables:
 | [`docs/PACOTE_EVIDENCIAS.md`](docs/PACOTE_EVIDENCIAS.md) | Evidence package (Instaward SOW, section 6) |
 | [`docs/ROTEIRO_DEMO.pdf`](docs/ROTEIRO_DEMO.pdf) | Demo video script |
 
+### AI-assisted development (GAIDE)
+
+This repository runs the [GAIDE](https://github.com/Ecoa-PUC-Rio/GAIDE) harness: spec-driven development with human approval at each step, portable agent procedures, and enforcement checks wired as hooks.
+
+| Where | What |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | Canonical briefing read by every coding agent (Claude Code, Antigravity, Cursor, Codex, ...) |
+| [`specs/constitution.md`](specs/constitution.md) | Ten non-negotiable principles; changeable only through an ADR |
+| [`agents/skills/`](agents/skills/) | Procedures — `spec-writer`, `test-generator`, `code-reviewer`, `security-reviewer`, `verifier`, `adr-writer` (exposed as `/name`) |
+| [`scripts/check-*.sh`](scripts/) | Enforcement checks: secrets, per-file syntax, SAST/SCA, safe-to-stop state |
+| [`init.sh`](init.sh) | Session bootstrap: deps, Prisma client, tests, typecheck, health check |
+| [`docs/getting-started.md`](docs/getting-started.md) | The flow, step by step |
+
+The flow for a new feature: `/spec-writer` → approve the spec, plan and tasks → `/test-generator` → implement → `/code-reviewer` (clean context) → `/verifier` against the running app → commit. Edit procedures in `agents/skills/` and run `scripts/sync-adapters.sh`; CI fails if the generated bindings drift.
+
 ---
 
 ## Roadmap

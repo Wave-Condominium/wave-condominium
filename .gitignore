@@ -42,3 +42,11 @@ scripts/pending-memberships.json
 
 # GAIDE-Trace local store (connect to a data repo if you want it versioned)
 .gaide-trace/
+
+# GAIDE — memória de trabalho local da sessão (não é conteúdo do repo)
+PROGRESS.md
+
+# GAIDE — overrides locais do Claude Code (settings.json do projeto fica no git;
+# os overrides e credenciais do usuário, não)
+.claude/settings.local.json
+.claude/.credentials.json

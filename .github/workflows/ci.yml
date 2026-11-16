@@ -189,3 +189,23 @@ jobs:
       # cada build — não é uma verificação pontual.
       - name: Varredura de segredos no bundle do cliente
         run: node scripts/security/scan-client-bundle.mjs
+
+  # GAIDE — Drift dos bindings por ferramenta. Os procedimentos vivem uma única
+  # vez em agents/skills/ e agents/reviewers/; os diretórios .claude/skills/,
+  # .claude/agents/ e .agents/workflows/ são GERADOS a partir deles por
+  # scripts/sync-adapters.sh. Este job falha se alguém editar o arquivo gerado
+  # em vez da fonte (ou esquecer de rodar o sync), que é como as instruções do
+  # agente silenciosamente divergem entre Claude Code e Antigravity.
+  # Correção: rodar scripts/sync-adapters.sh e commitar fonte + bindings.
+  # Os scanners do GAIDE (gitleaks, semgrep, osv-scanner) NÃO entram aqui:
+  # já são cobertos pelos jobs secret-scan, dependency-scan e sast acima, que
+  # têm as allowlists documentadas em security/.
+  adapters:
+    name: Drift dos bindings de agente (GAIDE)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verificar sincronia de agents/ com .claude/ e .agents/
+        run: scripts/sync-adapters.sh --check

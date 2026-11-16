@@ -1,0 +1,27 @@
+{
+  "$schema": "https://modelcontextprotocol.io/schema/mcp.json",
+  "_comment": "MCP configuration for this project (GAIDE convention: a leading underscore in the server name disables it — remove the underscore to enable). Per-tool connection notes in docs/mcp-setup.md. Never commit credentials here: use ${ENV_VAR} references.",
+  "mcpServers": {
+    "playwright": {
+      "_doc": "Browser automation for empirical verification (see the verifier skill): the agent exercises the running app end-to-end and takes screenshots before moving an acceptance criterion to 'verified'. Point it at the dev server from init.sh (http://127.0.0.1:3100).",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "_postgres-readonly": {
+      "_doc": "Read-only inspection of the Prisma database (schema, data shape) while writing specs. Enable by removing the leading underscore and exporting WAVE_READONLY_DATABASE_URL pointing at a read-only role — never the app's DATABASE_URL.",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "env": {
+        "POSTGRES_URL": "${WAVE_READONLY_DATABASE_URL}"
+      }
+    },
+    "_github": {
+      "_doc": "Pull requests and issues on WaveCondominium/wave-condominium. The gh CLI already covers this for most sessions; enable only if you want the agent to read issues directly, with a minimum-scope token.",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
+    }
+  }
+}
