@@ -1,0 +1,82 @@
+name: Deploy (AWS)
+
+# ADR 0004. Produção = branch main: o merge em main só acontece com os checks
+# obrigatórios do CI verdes, então este workflow não repete os gates.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC → role AWS, sem chave de acesso guardada no GitHub
+
+env:
+  AWS_REGION: sa-east-1
+  NAME: wave-prod # = "<app_name>-<environment>" do Terraform
+
+jobs:
+  deploy:
+    name: Build e deploy
+    runs-on: ubuntu-latest
+    # A trust policy da role só aceita jobs deste environment. Configure nele
+    # a variável AWS_DEPLOY_ROLE_ARN e, se quiser, revisores obrigatórios.
+    environment: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Build da imagem
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          IMAGE="$REGISTRY/$NAME"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          docker build --platform linux/amd64 -t "$IMAGE:$GITHUB_SHA" -t "$IMAGE:latest" .
+
+      # Estáticos ANTES de trocar as tasks: o HTML novo já encontra os bundles.
+      # Sem --delete: HTML antigo em cache ainda referencia os bundles anteriores.
+      - name: Estáticos no S3
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          CID=$(docker create "$IMAGE:$GITHUB_SHA")
+          docker cp "$CID:/app/.next/static" ./static-out
+          docker rm "$CID"
+          aws s3 sync ./static-out "s3://$NAME-static-$ACCOUNT/_next/static" \
+            --cache-control "public,max-age=31536000,immutable"
+
+      - name: Push da imagem
+        run: |
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:latest"
+
+      # A task definition (Terraform) aponta para :latest; o ECS resolve e fixa
+      # o digest a cada deployment, então o rollback do circuit breaker volta
+      # para a imagem anterior de verdade.
+      - name: Deploy no ECS
+        run: |
+          DEPLOY_ID=$(aws ecs update-service --cluster "$NAME" --service "$NAME" \
+            --force-new-deployment \
+            --query "service.deployments[?status=='PRIMARY'].id | [0]" --output text)
+          echo "Deployment: $DEPLOY_ID"
+          aws ecs wait services-stable --cluster "$NAME" --services "$NAME"
+          # Após um rollback do circuit breaker o serviço também fica "stable" —
+          # só que na versão antiga. Confere que foi ESTE deployment que concluiu.
+          STATE=$(aws ecs describe-services --cluster "$NAME" --services "$NAME" \
+            --query "services[0].deployments[?id=='$DEPLOY_ID'].rolloutState | [0]" --output text)
+          echo "rolloutState: $STATE"
+          if [ "$STATE" != "COMPLETED" ]; then
+            echo "::error::Deployment $DEPLOY_ID não concluiu (estado: $STATE) — provável rollback. Veja os logs em /ecs/$NAME."
+            exit 1
+          fi

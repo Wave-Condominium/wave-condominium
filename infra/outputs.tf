@@ -27,6 +27,11 @@ output "db_master_secret_arn" {
   value       = aws_db_instance.main.master_user_secret[0].secret_arn
 }
 
+output "deploy_role_arn" {
+  description = "Role do GitHub Actions — vai na variável AWS_DEPLOY_ROLE_ARN do environment production."
+  value       = aws_iam_role.deploy.arn
+}
+
 output "ssm_prefix" {
   value = local.ssm_prefix
 }

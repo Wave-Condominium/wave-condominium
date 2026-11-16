@@ -14,7 +14,7 @@ variable "environment" {
 }
 
 variable "image_tag" {
-  description = "Tag da imagem no ECR que o serviço ECS deve rodar."
+  description = "Tag da imagem no ECR que o serviço ECS roda. O pipeline sempre atualiza `latest` e força um novo deployment; o digest fica fixado por deployment no ECS."
   type        = string
   default     = "latest"
 }

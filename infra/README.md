@@ -11,12 +11,13 @@ Usuário ── HTTPS ──► CloudFront
                                                                     RDS PostgreSQL (privado)
 ```
 
-| Arquivo       | O que tem                                              |
-|---------------|--------------------------------------------------------|
-| `network.tf`  | VPC, subnets públicas/privadas, security groups         |
-| `database.tf` | RDS PostgreSQL 16                                       |
-| `app.tf`      | ECR, IAM, ALB interno, ECS cluster/task/service, logs   |
-| `cdn.tf`      | Bucket S3 de estáticos, CloudFront, VPC origin          |
+| Arquivo       | O que tem                                             |
+| ------------- | ----------------------------------------------------- |
+| `network.tf`  | VPC, subnets públicas/privadas, security groups       |
+| `database.tf` | RDS PostgreSQL 16                                     |
+| `app.tf`      | ECR, IAM, ALB interno, ECS cluster/task/service, logs |
+| `cdn.tf`      | Bucket S3 de estáticos, CloudFront, VPC origin        |
+| `github.tf`   | Provider OIDC + role de deploy do GitHub Actions      |
 
 Segredos da aplicação **não** ficam no Terraform: são parâmetros SecureString no SSM
 em `/wave/<env>/<NOME>` (lista em `var.app_secrets`), criados à mão.
@@ -73,8 +74,8 @@ BUCKET=$(terraform -chdir=infra output -raw static_bucket)
 TAG=$(git rev-parse --short HEAD)
 
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "${ECR%%/*}"
-docker build --platform linux/amd64 -t "$ECR:$TAG" .
-docker push "$ECR:$TAG"
+docker build --platform linux/amd64 -t "$ECR:$TAG" -t "$ECR:latest" .
+docker push "$ECR:$TAG" && docker push "$ECR:latest"
 
 # Sem --delete: HTML antigo ainda em cache referencia bundles antigos.
 CID=$(docker create "$ECR:$TAG")
@@ -85,8 +86,8 @@ rm -rf ./.static-out
 ```
 
 ```bash
-# 6. Sobe o serviço com a imagem
-terraform -chdir=infra apply -var image_tag="$TAG"
+# 6. Sobe o serviço (a task definition aponta para :latest)
+terraform -chdir=infra apply
 
 # 7. Confere
 curl -sI "$(terraform -chdir=infra output -raw url)/login"
@@ -95,9 +96,36 @@ curl -sI "$(terraform -chdir=infra output -raw url)/login"
 As migrations do Prisma rodam no start do container. Logs:
 `aws logs tail /ecs/wave-$ENV --follow`.
 
+## Deploy contínuo (GitHub Actions)
+
+Depois do bootstrap, todo push em `main` dispara
+[`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), que também pode ser
+disparado à mão (*Run workflow*). Ele: builda a imagem → sobe `/_next/static` no S3 →
+publica `:<sha>` e `:latest` no ECR → força um novo deployment no ECS → falha se o
+deployment não concluir (inclusive quando o circuit breaker faz rollback).
+
+A autenticação é por OIDC, sem chave AWS no GitHub. Configuração, uma vez:
+
+1. Em *Settings → Environments*, crie o environment **`production`**:
+   - *Deployment branches*: só `main`.
+   - *Required reviewers* (opcional): exige aprovação antes de cada deploy.
+   - *Variables*: `AWS_DEPLOY_ROLE_ARN` = `terraform -chdir=infra output -raw deploy_role_arn`.
+2. A role (`infra/github.tf`) só aceita jobs desse environment e só tem permissão
+   para push no ECR, escrita no bucket de estáticos e update do serviço ECS.
+
+Rollback manual: aponte `:latest` para a imagem anterior e force um deployment.
+
+```bash
+docker pull "$ECR:<sha-anterior>" && docker tag "$ECR:<sha-anterior>" "$ECR:latest"
+docker push "$ECR:latest"
+aws ecs update-service --cluster wave-prod --service wave-prod --force-new-deployment
+```
+
+Mudanças de infra (CPU, variáveis, segredos novos em `var.app_secrets`) continuam por
+`terraform apply`, feito por uma pessoa.
+
 ## Próximos passos (PRs separados — ADR 0004)
 
-- Pipeline no GitHub Actions (OIDC, build/push, sync do S3, deploy no ECS).
 - Vercel Blob → S3 para os comprovantes.
 - Vercel Cron → EventBridge para `/api/cron/purge-eventos-seguranca`.
 - Domínio customizado (ACM em us-east-1) e cutover de DNS/dados a partir do Neon.
