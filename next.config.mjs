@@ -30,6 +30,8 @@ const allowedOrigins = Array.from(
 
 const nextConfig = {
   reactStrictMode: true,
+  // ADR 0004: imagem enxuta para o ECS. A Vercel ignora esta opção.
+  output: "standalone",
   experimental: {
     serverActions: {
       allowedOrigins,

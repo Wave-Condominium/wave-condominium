@@ -1,0 +1,14 @@
+.git
+.github
+.next
+node_modules
+infra
+docs
+.env*
+*.pem
+*.tsbuildinfo
+.vercel
+.gaide-trace
+.claude
+.agents
+PROGRESS.md
