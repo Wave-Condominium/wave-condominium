@@ -15,26 +15,35 @@ permissions:
 
 jobs:
   # SEG-005 — Secret scanning. Roda em todo push/PR e BLOQUEIA o pipeline
-  # (job obrigatório) se encontrar algo com cara de segredo no diff analisado.
+  # (job obrigatório) se encontrar algo com cara de segredo no histórico do repo.
   # Sempre marcar este check como "required" em Settings → Branches, tanto
   # para main quanto para develop.
   secret-scan:
     name: Secret Scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (histórico completo para o gitleaks comparar o range certo)
+      - name: Checkout (histórico completo — segredo vazado e depois removido continua contando)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+      # Binário do gitleaks, NÃO a gitleaks-action: a action exige licença paga
+      # para contas de organização (independente do repo ser público) e passou a
+      # falhar com "missing gitleaks license" quando a org foi renomeada para
+      # Wave-Condominium. O binário tem a mesma cobertura, sem licença e sem
+      # depender de uma action de terceiro — receita do GAIDE
+      # (.github/workflows/security.yml do template). Versão e SHA256 fixados:
+      # o checksum é conferido antes de executar, então um artefato trocado no
+      # release falha o job em vez de rodar.
+      - name: Gitleaks (histórico completo)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Repo público: não precisa de GITLEAKS_LICENSE. Se o repo virar
-          # privado, criar o secret GITLEAKS_LICENSE (ver docs do gitleaks-action)
-          # e descomentar a linha abaixo.
-          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -sSL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks git --no-banner --redact .
 
   # SEG-013 — Varredura de dependências (SCA). Roda em todo push/PR, em
   # paralelo ao job "quality". BLOQUEIA o pipeline (job obrigatório) em
@@ -189,3 +198,23 @@ jobs:
       # cada build — não é uma verificação pontual.
       - name: Varredura de segredos no bundle do cliente
         run: node scripts/security/scan-client-bundle.mjs
+
+  # GAIDE — Drift dos bindings por ferramenta. Os procedimentos vivem uma única
+  # vez em agents/skills/ e agents/reviewers/; os diretórios .claude/skills/,
+  # .claude/agents/ e .agents/workflows/ são GERADOS a partir deles por
+  # scripts/sync-adapters.sh. Este job falha se alguém editar o arquivo gerado
+  # em vez da fonte (ou esquecer de rodar o sync), que é como as instruções do
+  # agente silenciosamente divergem entre Claude Code e Antigravity.
+  # Correção: rodar scripts/sync-adapters.sh e commitar fonte + bindings.
+  # Os scanners do GAIDE (gitleaks, semgrep, osv-scanner) NÃO entram aqui:
+  # já são cobertos pelos jobs secret-scan, dependency-scan e sast acima, que
+  # têm as allowlists documentadas em security/.
+  adapters:
+    name: Drift dos bindings de agente (GAIDE)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verificar sincronia de agents/ com .claude/ e .agents/
+        run: scripts/sync-adapters.sh --check
