@@ -74,11 +74,11 @@ BUCKET=$(terraform -chdir=infra output -raw static_bucket)
 TAG=$(git rev-parse --short HEAD)
 
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "${ECR%%/*}"
-docker build --platform linux/amd64 -t "$ECR:$TAG" -t "$ECR:latest" .
-docker push "$ECR:$TAG" && docker push "$ECR:latest"
+docker build --platform linux/amd64 -t "${ECR}:$TAG" -t "${ECR}:latest" .
+docker push "${ECR}:$TAG" && docker push "${ECR}:latest"
 
 # Sem --delete: HTML antigo ainda em cache referencia bundles antigos.
-CID=$(docker create "$ECR:$TAG")
+CID=$(docker create "${ECR}:$TAG")
 docker cp "$CID:/app/.next/static" ./.static-out && docker rm "$CID"
 aws s3 sync ./.static-out "s3://$BUCKET/_next/static" \
   --cache-control "public,max-age=31536000,immutable"
@@ -116,8 +116,8 @@ A autenticação é por OIDC, sem chave AWS no GitHub. Configuração, uma vez:
 Rollback manual: aponte `:latest` para a imagem anterior e force um deployment.
 
 ```bash
-docker pull "$ECR:<sha-anterior>" && docker tag "$ECR:<sha-anterior>" "$ECR:latest"
-docker push "$ECR:latest"
+docker pull "${ECR}:<sha-anterior>" && docker tag "${ECR}:<sha-anterior>" "${ECR}:latest"
+docker push "${ECR}:latest"
 aws ecs update-service --cluster wave-prod --service wave-prod --force-new-deployment
 ```
 
