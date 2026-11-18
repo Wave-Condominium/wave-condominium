@@ -32,10 +32,9 @@ resource "aws_ecs_task_definition" "db_copy" {
       set -euo pipefail
       echo "origem: Postgres $(psql "$SOURCE_DATABASE_URL" -tAc 'show server_version')"
       psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
-      # transaction_timeout só existe no PG17+ e o RDS é 16; o CREATE SCHEMA public
-      # já foi feito acima.
+      # O CREATE SCHEMA public já foi feito acima.
       pg_dump --no-owner --no-privileges --no-comments --schema=public "$SOURCE_DATABASE_URL" \
-        | sed -e '/^SET transaction_timeout/d' -e '/^CREATE SCHEMA public;/d' \
+        | sed -e '/^CREATE SCHEMA public;/d' \
         | psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q
       psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -v pw="$DEMO_USERS_PASSWORD" <<'SQL'
       CREATE EXTENSION IF NOT EXISTS pgcrypto;

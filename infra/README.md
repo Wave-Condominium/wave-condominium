@@ -14,7 +14,7 @@ Usuário ── HTTPS ──► CloudFront (homolog.wavecondominium.com.br)
 | Arquivo       | O que tem                                                 |
 | ------------- | --------------------------------------------------------- |
 | `network.tf`  | VPC, subnets públicas/privadas, security groups           |
-| `database.tf` | RDS PostgreSQL 16                                         |
+| `database.tf` | RDS PostgreSQL 18                                         |
 | `app.tf`      | ECR, IAM, ALB interno, ECS cluster/task/service, logs     |
 | `cdn.tf`      | Bucket S3 de estáticos, certificado ACM, CloudFront       |
 | `github.tf`   | Provider OIDC + role de deploy do GitHub Actions          |

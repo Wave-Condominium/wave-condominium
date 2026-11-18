@@ -34,7 +34,7 @@ estático de verdade, com o CloudFront como porta única:
    sem NAT Gateway; o security group aceita entrada apenas do ALB. As migrations
    (`prisma migrate deploy`) rodam no start do container (o Prisma usa advisory lock,
    então várias tasks subindo juntas é seguro).
-4. **RDS PostgreSQL 16**, `db.t4g.micro`, single-AZ, criptografado, backup de 7 dias,
+4. **RDS PostgreSQL 18** (mesma major do Neon de origem), `db.t4g.micro`, single-AZ, criptografado, backup de 7 dias,
    em subnets privadas, acessível só pelo SG das tasks. A senha master fica no
    Secrets Manager gerenciada pelo próprio RDS (`manage_master_user_password`).
 5. **Segredos da aplicação** (`DATABASE_URL`, `WAVE_SESSION_SECRET`,
