@@ -71,8 +71,26 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
   name = "Managed-AllViewer"
 }
 
+# Validação por DNS: o registro sai em `terraform output certificate_validation`
+# e é criado à mão no Registro.br (ver README).
+resource "aws_acm_certificate" "main" {
+  provider          = aws.us_east_1
+  domain_name       = var.domain_name
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_acm_certificate_validation" "main" {
+  provider        = aws.us_east_1
+  certificate_arn = aws_acm_certificate.main.arn
+}
+
 resource "aws_cloudfront_distribution" "main" {
   enabled         = true
+  aliases         = [var.domain_name]
   is_ipv6_enabled = true
   http_version    = "http2and3"
   price_class     = "PriceClass_All" # inclui edges na América do Sul
@@ -119,8 +137,9 @@ resource "aws_cloudfront_distribution" "main" {
     }
   }
 
-  # Domínio customizado + ACM (us-east-1) entram num PR próprio (ADR 0004).
   viewer_certificate {
-    cloudfront_default_certificate = true
+    acm_certificate_arn      = aws_acm_certificate_validation.main.certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 }

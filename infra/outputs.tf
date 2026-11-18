@@ -1,5 +1,19 @@
 output "url" {
-  value = "https://${aws_cloudfront_distribution.main.domain_name}"
+  value = "https://${var.domain_name}"
+}
+
+output "certificate_validation" {
+  description = "CNAME a criar no Registro.br para o ACM validar o certificado."
+  value = [for o in aws_acm_certificate.main.domain_validation_options : {
+    nome  = o.resource_record_name
+    tipo  = o.resource_record_type
+    valor = o.resource_record_value
+  }]
+}
+
+output "dns_cname" {
+  description = "CNAME a criar no Registro.br: <domain_name> → CloudFront."
+  value       = "${var.domain_name} CNAME ${aws_cloudfront_distribution.main.domain_name}"
 }
 
 output "ecr_repository_url" {
