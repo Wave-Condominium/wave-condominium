@@ -1,14 +1,14 @@
 name: Deploy (AWS)
 
-# ADR 0004. Produção = branch main: o merge em main só acontece com os checks
-# obrigatórios do CI verdes, então este workflow não repete os gates.
+# ADR 0004. Homologação = branch develop: o merge em develop só acontece com os
+# checks obrigatórios do CI verdes, então este workflow não repete os gates.
 on:
   push:
-    branches: [main]
+    branches: [develop]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-production
+  group: deploy-homolog
   cancel-in-progress: false
 
 permissions:
@@ -17,7 +17,7 @@ permissions:
 
 env:
   AWS_REGION: sa-east-1
-  NAME: wave-prod # = "<app_name>-<environment>" do Terraform
+  NAME: wave-homolog # = "<app_name>-<environment>" do Terraform
 
 jobs:
   deploy:
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     # A trust policy da role só aceita jobs deste environment. Configure nele
     # a variável AWS_DEPLOY_ROLE_ARN e, se quiser, revisores obrigatórios.
-    environment: production
+    environment: homolog
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

@@ -1,14 +1,15 @@
 # Deploy pelo GitHub Actions via OIDC: nenhuma chave de acesso AWS fica no GitHub.
-# Só jobs no environment "production" do repositório podem assumir a role — o
-# environment é onde se exige aprovação manual e se restringe a branch (main).
+# Só jobs no environment do GitHub com o mesmo nome de var.environment podem
+# assumir a role — o environment é onde se restringe a branch e se exige aprovação.
 
 variable "github_repo" {
   type    = string
   default = "Wave-Condominium/wave-condominium"
 }
 
-# Um provider OIDC por conta AWS. Se a conta já tiver um para o GitHub, importe-o:
-# terraform import aws_iam_openid_connect_provider.github <arn>
+# Um provider OIDC por conta AWS. Ao criar um segundo ambiente na mesma conta
+# (ex.: prod), o provider já existe — trocar este resource por um data source
+# nesse momento, ou importá-lo: terraform import aws_iam_openid_connect_provider.github <arn>
 resource "aws_iam_openid_connect_provider" "github" {
   url            = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
@@ -25,7 +26,7 @@ resource "aws_iam_role" "deploy" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:environment:production"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:environment:${var.environment}"
         }
       }
     }]

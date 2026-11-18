@@ -9,8 +9,15 @@ variable "app_name" {
 }
 
 variable "environment" {
-  type    = string
-  default = "prod"
+  description = "Nome do ambiente: prefixo dos recursos (wave-<env>), do SSM (/wave/<env>/) e nome do environment do GitHub que pode fazer deploy."
+  type        = string
+  default     = "homolog"
+}
+
+variable "domain_name" {
+  description = "Domínio público do ambiente (CNAME no Registro.br apontando para o CloudFront)."
+  type        = string
+  default     = "homolog.wavecondominium.com.br"
 }
 
 variable "image_tag" {

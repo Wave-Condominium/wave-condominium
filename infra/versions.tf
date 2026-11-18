@@ -25,6 +25,20 @@ provider "aws" {
   }
 }
 
+# Certificados usados pelo CloudFront precisam estar em us-east-1.
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Project     = var.app_name
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
+}
+
 locals {
   name       = "${var.app_name}-${var.environment}"
   ssm_prefix = "/${var.app_name}/${var.environment}"

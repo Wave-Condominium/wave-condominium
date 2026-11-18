@@ -122,8 +122,8 @@ resource "aws_ecs_task_definition" "app" {
 
     environment = [
       # Server Actions: o Next compara o header Origin com o Host. O CloudFront
-      # repassa o Host do viewer, mas deixamos o domínio explícito por segurança.
-      { name = "WAVE_ALLOWED_ORIGINS", value = aws_cloudfront_distribution.main.domain_name },
+      # repassa o Host do viewer, mas deixamos os domínios explícitos por segurança.
+      { name = "WAVE_ALLOWED_ORIGINS", value = "${var.domain_name},${aws_cloudfront_distribution.main.domain_name}" },
     ]
 
     secrets = [for s in var.app_secrets : {
