@@ -103,6 +103,97 @@
       "cardRef": "SEG-018",
       "addedAt": "2026-11-09",
       "expiresAt": "2026-11-23"
+    },
+    {
+      "package": "picomatch",
+      "reason": "Advisory GHSA-fc5q-39xc-vjpf (ReDoS em extglobs repetidos, <=4.0.7) sem versão corrigida publicada — 4.0.7 é a última. Usado só por ferramentas de build/lint/teste (tailwind 3, eslint, vite); no runtime, a única cópia é next/dist/compiled/picomatch, que casa padrões do next.config, não entrada do usuário. Remover assim que sair o patch upstream.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "@typescript-eslint/typescript-estree",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "anymatch",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "chokidar",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "eslint-import-resolver-typescript",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "fast-glob",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "fdir",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "micromatch",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "readdirp",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "sucrase",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "tailwindcss",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "tailwindcss-animate",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
+    },
+    {
+      "package": "tinyglobby",
+      "reason": "Herda a severidade de picomatch (GHSA-fc5q-39xc-vjpf, sem patch upstream). Ferramenta de build/lint/teste, não roda em produção.",
+      "cardRef": "SEG-019",
+      "addedAt": "2026-11-18",
+      "expiresAt": "2026-12-02"
     }
   ]
 }
