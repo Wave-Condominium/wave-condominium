@@ -6,9 +6,12 @@ resource "aws_db_subnet_group" "main" {
 resource "aws_db_instance" "main" {
   identifier     = local.name
   engine         = "postgres"
-  engine_version = "16"
-  instance_class = var.db_instance_class
-  multi_az       = var.db_multi_az
+  engine_version = "18" # mesma major do Neon de origem (db-copy)
+  # Upgrade de major é in-place e derruba o banco por alguns minutos.
+  allow_major_version_upgrade = true
+  apply_immediately           = true
+  instance_class              = var.db_instance_class
+  multi_az                    = var.db_multi_az
 
   allocated_storage     = 20
   max_allocated_storage = 100
