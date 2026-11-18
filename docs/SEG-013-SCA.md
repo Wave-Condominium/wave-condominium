@@ -134,6 +134,13 @@ test/seg-013-vuln`) — nunca deixar a dependência vulnerável entrar em
   `@prisma/config`/`prisma`), com teste de migrations/seed.
 - **SEG-018** — Upgrade Vitest → 5.0.1 (corrige `vite`/`vitest`), validando
   as 241 suítes de teste antes de aplicar.
+- **SEG-019** — `picomatch` ReDoS ([GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf),
+  `<=4.0.7`, aberta em 2026-11-18 **sem versão corrigida**). Atualizar o
+  picomatch (via `npm audit fix` / overrides) assim que o patch sair e remover
+  as 13 exceções `SEG-019` (picomatch + dependentes que herdam a severidade:
+  tailwind, eslint, chokidar, vite…). No runtime, a única cópia é a compilada
+  dentro do Next, que casa padrões do `next.config`, não entrada do usuário.
+  Prazo curto (2026-12-02) para forçar a reavaliação.
 
 Todas com `expiresAt: 2026-09-29` em `security/audit-exceptions.json` — se
 nenhum desses cards avançar até lá, o pipeline volta a bloquear sozinho.
