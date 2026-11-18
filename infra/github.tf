@@ -2,9 +2,13 @@
 # Só jobs no environment do GitHub com o mesmo nome de var.environment podem
 # assumir a role — o environment é onde se restringe a branch e se exige aprovação.
 
-variable "github_repo" {
+# O repositório usa o "immutable subject" do OIDC: o sub do token leva os IDs do
+# dono e do repo (repo:<dono>@<id>/<repo>@<id>:...), não só os nomes. Isso impede
+# que um repo renomeado ou recriado com o mesmo nome assuma a role.
+# IDs: gh api repos/<dono>/<repo> --jq '.owner.id, .id'
+variable "github_repo_subject" {
   type    = string
-  default = "Wave-Condominium/wave-condominium"
+  default = "Wave-Condominium@354637883/wave-condominium@1303359859"
 }
 
 # Um provider OIDC por conta AWS. Ao criar um segundo ambiente na mesma conta
@@ -26,7 +30,7 @@ resource "aws_iam_role" "deploy" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo}:environment:${var.environment}"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_repo_subject}:environment:${var.environment}"
         }
       }
     }]
