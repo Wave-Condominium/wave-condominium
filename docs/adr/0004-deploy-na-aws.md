@@ -36,7 +36,10 @@ estático de verdade, com o CloudFront como porta única:
    então várias tasks subindo juntas é seguro).
 4. **RDS PostgreSQL 18** (mesma major do Neon de origem), `db.t4g.micro`, single-AZ, criptografado, backup de 7 dias,
    em subnets privadas, acessível só pelo SG das tasks. A senha master fica no
-   Secrets Manager gerenciada pelo próprio RDS (`manage_master_user_password`).
+   Secrets Manager gerenciada pelo próprio RDS (`manage_master_user_password`), que a
+   troca a cada 7 dias. Por isso o app conecta com um usuário próprio (`wave_app`, dono
+   do schema `public`), com senha fixa no SSM. O master só é usado por uma task avulsa
+   de administração.
 5. **Segredos da aplicação** (`DATABASE_URL`, `WAVE_SESSION_SECRET`,
    `WAVE_STELLAR_SECRET`, …) ficam no **SSM Parameter Store** (SecureString), criados
    fora do Terraform — o state nunca contém segredo — e injetados pelo ECS.

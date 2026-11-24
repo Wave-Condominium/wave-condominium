@@ -21,6 +21,7 @@ EventBridge Scheduler ── 03:00 UTC ──► task ECS (curl no cron) ─┘ 
 | `cdn.tf`             | S3 de estáticos, ACM, CloudFront, registros DNS, redirect apex |
 | `github.tf`          | Role de deploy do GitHub Actions (OIDC)                        |
 | `cron.tf`            | EventBridge Scheduler → `/api/cron/purge-eventos-seguranca`    |
+| `db-app-user.tf`     | Task avulsa que cria o usuário do banco do app (`wave_app`)    |
 | `admin-bootstrap.tf` | Task avulsa que cria o primeiro ADMIN num banco vazio          |
 | `db-copy.tf`         | Task avulsa que copia um Postgres para o RDS (nunca em prod)   |
 
@@ -82,10 +83,23 @@ terraform -chdir=infra apply -var-file="envs/$ENV.tfvars" -var desired_count=0
 O certificado ACM é validado sozinho pelos registros no Route 53; o apply espera a
 validação antes de criar o CloudFront e o alias do domínio.
 
-**3. Segredos no SSM.** O RDS gerou a senha master no Secrets Manager
-(`terraform output db_master_secret_arn`). Monte o `DATABASE_URL` com ela —
-`postgresql://wave:<senha-url-encoded>@<db_endpoint>:5432/wave?sslmode=require` — e crie
-cada parâmetro de `var.app_secrets` sem deixar o valor no histórico do shell (zsh):
+**3. Segredos no SSM.** O app **não** usa o usuário master (`wave`): o RDS troca a senha
+dele sozinho a cada 7 dias, e um `DATABASE_URL` com ela quebra toda task nova depois da
+troca. O app usa o `wave_app`, com senha fixa:
+
+```bash
+aws ssm put-parameter --type SecureString --name "/wave/$ENV/APP_DB_PASSWORD" \
+  --value "$(openssl rand -hex 32)" --query Version --output text
+terraform -chdir=infra output -raw db_app_user_command   # rode o comando que sai aqui
+```
+
+A task (`db-app-user.tf`) usa o master direto do Secrets Manager, cria o `wave_app` e passa
+para ele a posse do schema `public`; o log (prefixo `db-app-user`) termina em
+`wave_app pronto`. É idempotente: rode de novo se trocar o `APP_DB_PASSWORD` ou depois de
+qualquer coisa criada como master. O `DATABASE_URL` fica
+`postgresql://wave_app:<APP_DB_PASSWORD>@<db_endpoint>:5432/wave?sslmode=require`.
+
+Crie cada parâmetro de `var.app_secrets` sem deixar o valor no histórico do shell (zsh):
 
 ```bash
 for NOME in DATABASE_URL WAVE_SESSION_SECRET WAVE_STELLAR_SECRET PSP_WEBHOOK_SECRET CRON_SECRET BLOB_READ_WRITE_TOKEN; do
