@@ -10,6 +10,9 @@
 # -pooler) e DEMO_USERS_PASSWORD. Como rodar: `terraform output db_copy_command`.
 
 resource "aws_ecs_task_definition" "db_copy" {
+  # Nunca em produção: a task APAGA o schema public do destino.
+  count = var.environment == "prod" ? 0 : 1
+
   family                   = "${local.name}-db-copy"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -60,9 +63,15 @@ resource "aws_ecs_task_definition" "db_copy" {
 }
 
 output "db_copy_command" {
-  value = join(" ", [
+  value = var.environment == "prod" ? null : join(" ", [
     "aws ecs run-task --cluster ${aws_ecs_cluster.main.name}",
-    "--task-definition ${aws_ecs_task_definition.db_copy.family} --launch-type FARGATE",
-    "--network-configuration 'awsvpcConfiguration={subnets=[${join(",", aws_subnet.public[*].id)}],securityGroups=[${aws_security_group.app.id}],assignPublicIp=ENABLED}'",
+    "--task-definition ${aws_ecs_task_definition.db_copy[0].family} --launch-type FARGATE",
+    "--network-configuration '${local.task_network}'",
   ])
+}
+
+# O homolog criou a task antes do count acima.
+moved {
+  from = aws_ecs_task_definition.db_copy
+  to   = aws_ecs_task_definition.db_copy[0]
 }

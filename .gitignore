@@ -56,3 +56,5 @@ PROGRESS.md
 *.tfstate
 *.tfstate.*
 *.tfvars
+# Exceção: identidade de cada ambiente (nome + domínio), sem segredo nenhum
+!infra/envs/*.tfvars

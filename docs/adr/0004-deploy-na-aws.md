@@ -41,12 +41,18 @@ estático de verdade, com o CloudFront como porta única:
    `WAVE_STELLAR_SECRET`, …) ficam no **SSM Parameter Store** (SecureString), criados
    fora do Terraform — o state nunca contém segredo — e injetados pelo ECS.
 6. **Terraform** em `infra/`, um diretório só, sem módulos próprios; state em S3.
-   Região `sa-east-1`.
+   Região `sa-east-1`. Um state por ambiente (`homolog`, `prod`, identidade em
+   `infra/envs/<env>.tfvars`) e um `infra/shared/` para o que é único por conta.
+7. **DNS no Route 53** (zona em `infra/shared/`, nameservers no Registro.br): cada
+   ambiente cria a validação do ACM e o alias do CloudFront sozinho. Em produção o
+   domínio canônico é `www`; o apex responde 301 para `www` por uma CloudFront Function.
+8. **Cron no EventBridge Scheduler**, que roda uma task ECS com `curl` chamando a rota do
+   cron com `CRON_SECRET` lido do SSM. Uma API destination do EventBridge guardaria o
+   segredo no state.
+9. **Deploy contínuo** pelo GitHub Actions com OIDC: `develop` → homolog, `main` → prod,
+   cada um com o seu environment no GitHub e a sua role na AWS.
 
-Fora do escopo deste primeiro passo, cada um em PR próprio: pipeline de deploy no
-GitHub Actions (build/push da imagem, sync do S3, update do serviço), troca do Vercel
-Blob por S3, troca do Vercel Cron por EventBridge, domínio customizado + ACM, e o
-cutover de DNS/dados a partir do Neon.
+Fora do escopo, em PR próprio: troca do Vercel Blob por S3.
 
 ## Alternatives considered
 
@@ -86,7 +92,8 @@ cutover de DNS/dados a partir do Neon.
 - Tasks com IP público (só saída): depende de o SG continuar restrito.
 
 ### Neutral
-- `vercel.json` e o deploy na Vercel continuam funcionando até o cutover.
+- Depois do cutover, `vercel.json` e o projeto na Vercel só saem quando a Vercel for
+  desligada. O Vercel Blob continua em uso.
 - `next.config.mjs` ganha `output: "standalone"`, que a Vercel ignora.
 
 ## Constitution adherence

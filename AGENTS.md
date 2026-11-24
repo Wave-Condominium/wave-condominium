@@ -20,7 +20,7 @@
 - **Auth:** session cookie with `jose` JWT + RBAC guards (`src/server/auth/`)
 - **Blockchain:** Stellar SDK (testnet) for hash anchoring and USDC settlement
 - **Tests:** Vitest (`npm test` → `vitest run`, pure-logic tests in `src/**/*.test.ts`)
-- **Deployment:** Vercel (`vercel.json`); build runs `prisma generate && prisma migrate deploy && next build`
+- **Deployment:** AWS (CloudFront + S3 + ECS Fargate + RDS, Terraform in `infra/`, ADR 0004); `develop` → homolog, `main` → prod via `.github/workflows/deploy.yml`; Prisma migrations run on container start
 
 ## Relevant folder structure
 

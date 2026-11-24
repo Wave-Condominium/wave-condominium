@@ -1,14 +1,15 @@
 name: Deploy (AWS)
 
-# ADR 0004. Homologação = branch develop: o merge em develop só acontece com os
-# checks obrigatórios do CI verdes, então este workflow não repete os gates.
+# ADR 0004. Branch → ambiente: develop → homolog, main → prod. O merge nessas
+# branches só acontece com os checks obrigatórios do CI verdes, então este
+# workflow não repete os gates.
 on:
   push:
-    branches: [develop]
+    branches: [develop, main]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-homolog
+  group: deploy-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -17,15 +18,17 @@ permissions:
 
 env:
   AWS_REGION: sa-east-1
-  NAME: wave-homolog # = "<app_name>-<environment>" do Terraform
+  # = var.environment do Terraform e nome do environment do GitHub.
+  ENVIRONMENT: ${{ github.ref_name == 'main' && 'prod' || 'homolog' }}
 
 jobs:
   deploy:
     name: Build e deploy
     runs-on: ubuntu-latest
     # A trust policy da role só aceita jobs deste environment. Configure nele
-    # a variável AWS_DEPLOY_ROLE_ARN e, se quiser, revisores obrigatórios.
-    environment: homolog
+    # a variável AWS_DEPLOY_ROLE_ARN, a branch permitida e, se quiser,
+    # revisores obrigatórios.
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'homolog' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -41,6 +44,8 @@ jobs:
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
+          NAME="wave-$ENVIRONMENT" # = "<app_name>-<environment>" do Terraform
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
           IMAGE="$REGISTRY/$NAME"
           echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
           docker build --platform linux/amd64 -t "$IMAGE:$GITHUB_SHA" -t "$IMAGE:latest" .

@@ -11,12 +11,9 @@ variable "github_repo_subject" {
   default = "Wave-Condominium@354637883/wave-condominium@1303359859"
 }
 
-# Um provider OIDC por conta AWS. Ao criar um segundo ambiente na mesma conta
-# (ex.: prod), o provider já existe — trocar este resource por um data source
-# nesse momento, ou importá-lo: terraform import aws_iam_openid_connect_provider.github <arn>
-resource "aws_iam_openid_connect_provider" "github" {
-  url            = "https://token.actions.githubusercontent.com"
-  client_id_list = ["sts.amazonaws.com"]
+# O provider OIDC é um por conta e fica em infra/shared/.
+data "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
 }
 
 resource "aws_iam_role" "deploy" {
@@ -25,7 +22,7 @@ resource "aws_iam_role" "deploy" {
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
-      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+      Principal = { Federated = data.aws_iam_openid_connect_provider.github.arn }
       Action    = "sts:AssumeRoleWithWebIdentity"
       Condition = {
         StringEquals = {
