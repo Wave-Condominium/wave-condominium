@@ -132,8 +132,9 @@ test/seg-013-vuln`) — nunca deixar a dependência vulnerável entrar em
   com teste dedicado da âncora de integridade.
 - **SEG-017** — Upgrade do Prisma CLI → 6.12.0+ (corrige `deepmerge-ts`/
   `@prisma/config`/`prisma`), com teste de migrations/seed.
-- **SEG-018** — Upgrade Vitest → 5.0.1 (corrige `vite`/`vitest`), validando
-  as 241 suítes de teste antes de aplicar.
+- **SEG-018** — ✅ Concluído em 2026-11-24: Vitest 2 → 5.1.1 (com `vite` 8 e
+  `@types/node` 22, a versão do runtime). 269 testes passando; exceções de
+  `vite`/`vitest`/`tinypool` removidas.
 - **SEG-019** — `picomatch` ReDoS ([GHSA-fc5q-39xc-vjpf](https://github.com/advisories/GHSA-fc5q-39xc-vjpf),
   `<=4.0.7`, aberta em 2026-11-18 **sem versão corrigida**). Atualizar o
   picomatch (via `npm audit fix` / overrides) assim que o patch sair e remover
@@ -142,8 +143,18 @@ test/seg-013-vuln`) — nunca deixar a dependência vulnerável entrar em
   dentro do Next, que casa padrões do `next.config`, não entrada do usuário.
   Prazo curto (2026-12-02) para forçar a reavaliação.
 
-Todas com `expiresAt: 2026-09-29` em `security/audit-exceptions.json` — se
-nenhum desses cards avançar até lá, o pipeline volta a bloquear sozinho.
+**Renovação de 2026-11-24** (prazo novo: 2026-12-15), antes de ir para produção:
+
+- `next` subiu para 14.2.35 (último patch da linha 14), que fecha o bypass de
+  autorização no middleware e vários DoS. Das Critical restantes, a RCE no
+  Image Optimization API foi mitigada com `images.unoptimized: true` (o app não
+  usa `next/image`; `/_next/image` passou a responder 404). A RCE em servidor
+  Windows não se aplica (Linux no ECS). Ficam advisories High de DoS/SSRF da
+  linha 14: o SEG-014 (14 → 16) continua sendo a correção e é prioridade.
+- `effect` entrou como exceção nova do SEG-017 (transitiva do Prisma CLI 6).
+
+Se nenhum desses cards avançar até o prazo em `security/audit-exceptions.json`,
+o pipeline volta a bloquear sozinho.
 
 > Nota: rodando o script pela primeira vez de verdade, apareceram mais
 > pacotes na allowlist do que os 5 "causa raiz" originalmente listados —
