@@ -8,16 +8,28 @@ variable "app_name" {
   default = "wave"
 }
 
+# Sem default de propósito: o ambiente vem sempre de envs/<env>.tfvars, para
+# não aplicar a configuração de um ambiente no state de outro.
 variable "environment" {
   description = "Nome do ambiente: prefixo dos recursos (wave-<env>), do SSM (/wave/<env>/) e nome do environment do GitHub que pode fazer deploy."
   type        = string
-  default     = "homolog"
 }
 
 variable "domain_name" {
-  description = "Domínio público do ambiente (CNAME no Registro.br apontando para o CloudFront)."
+  description = "Domínio canônico do ambiente, servido pelo CloudFront."
   type        = string
-  default     = "homolog.wavecondominium.com.br"
+}
+
+variable "redirect_domains" {
+  description = "Domínios extras que só redirecionam (301) para domain_name — ex.: o apex para o www."
+  type        = list(string)
+  default     = []
+}
+
+variable "dns_zone" {
+  description = "Zona do Route 53 (criada em infra/shared/) onde ficam os registros do ambiente."
+  type        = string
+  default     = "wavecondominium.com.br"
 }
 
 variable "image_tag" {

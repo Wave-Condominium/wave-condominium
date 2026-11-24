@@ -2,20 +2,6 @@ output "url" {
   value = "https://${var.domain_name}"
 }
 
-output "certificate_validation" {
-  description = "CNAME a criar no Registro.br para o ACM validar o certificado."
-  value = [for o in aws_acm_certificate.main.domain_validation_options : {
-    nome  = o.resource_record_name
-    tipo  = o.resource_record_type
-    valor = o.resource_record_value
-  }]
-}
-
-output "dns_cname" {
-  description = "CNAME a criar no Registro.br: <domain_name> → CloudFront."
-  value       = "${var.domain_name} CNAME ${aws_cloudfront_distribution.main.domain_name}"
-}
-
 output "ecr_repository_url" {
   value = aws_ecr_repository.app.repository_url
 }
@@ -42,7 +28,7 @@ output "db_master_secret_arn" {
 }
 
 output "deploy_role_arn" {
-  description = "Role do GitHub Actions — vai na variável AWS_DEPLOY_ROLE_ARN do environment production."
+  description = "Role do GitHub Actions — vai na variável AWS_DEPLOY_ROLE_ARN do environment do GitHub com o nome do ambiente."
   value       = aws_iam_role.deploy.arn
 }
 

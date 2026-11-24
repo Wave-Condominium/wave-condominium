@@ -71,26 +71,75 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
   name = "Managed-AllViewer"
 }
 
-# Validação por DNS: o registro sai em `terraform output certificate_validation`
-# e é criado à mão no Registro.br (ver README).
+locals {
+  all_domains = concat([var.domain_name], var.redirect_domains)
+}
+
+data "aws_route53_zone" "main" {
+  name = var.dns_zone
+}
+
+# Um certificado para o domínio canônico + os de redirect, validado por DNS
+# no Route 53 (zona em infra/shared/) — sem passo manual.
 resource "aws_acm_certificate" "main" {
-  provider          = aws.us_east_1
-  domain_name       = var.domain_name
-  validation_method = "DNS"
+  provider                  = aws.us_east_1
+  domain_name               = var.domain_name
+  subject_alternative_names = var.redirect_domains
+  validation_method         = "DNS"
 
   lifecycle {
     create_before_destroy = true
   }
 }
 
+resource "aws_route53_record" "cert_validation" {
+  for_each = {
+    for o in aws_acm_certificate.main.domain_validation_options : o.domain_name => o
+  }
+
+  zone_id         = data.aws_route53_zone.main.zone_id
+  name            = each.value.resource_record_name
+  type            = each.value.resource_record_type
+  records         = [each.value.resource_record_value]
+  ttl             = 300
+  allow_overwrite = true
+}
+
 resource "aws_acm_certificate_validation" "main" {
-  provider        = aws.us_east_1
-  certificate_arn = aws_acm_certificate.main.arn
+  provider                = aws.us_east_1
+  certificate_arn         = aws_acm_certificate.main.arn
+  validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
+}
+
+# Redireciona os domínios extras (ex.: apex) para o canônico, preservando o
+# caminho e a query. Roda no edge, antes de chegar ao app.
+resource "aws_cloudfront_function" "redirect" {
+  count   = length(var.redirect_domains) > 0 ? 1 : 0
+  name    = "${local.name}-redirect"
+  runtime = "cloudfront-js-2.0"
+  publish = true
+  code    = <<-EOT
+    function handler(event) {
+      var req = event.request;
+      if (req.headers.host.value === "${var.domain_name}") return req;
+      var qs = Object.keys(req.querystring).map(function (k) {
+        var v = req.querystring[k];
+        return v.multiValue
+          ? v.multiValue.map(function (m) { return k + "=" + m.value; }).join("&")
+          : k + "=" + v.value;
+      }).join("&");
+      return {
+        statusCode: 301,
+        statusDescription: "Moved Permanently",
+        headers: { location: { value: "https://${var.domain_name}" + req.uri + (qs ? "?" + qs : "") } },
+      };
+    }
+  EOT
 }
 
 resource "aws_cloudfront_distribution" "main" {
   enabled         = true
-  aliases         = [var.domain_name]
+  aliases         = local.all_domains
   is_ipv6_enabled = true
   http_version    = "http2and3"
   price_class     = "PriceClass_All" # inclui edges na América do Sul
@@ -119,6 +168,14 @@ resource "aws_cloudfront_distribution" "main" {
     cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
     compress                 = true
+
+    dynamic "function_association" {
+      for_each = aws_cloudfront_function.redirect
+      content {
+        event_type   = "viewer-request"
+        function_arn = function_association.value.arn
+      }
+    }
   }
 
   ordered_cache_behavior {
@@ -141,5 +198,21 @@ resource "aws_cloudfront_distribution" "main" {
     acm_certificate_arn      = aws_acm_certificate_validation.main.certificate_arn
     ssl_support_method       = "sni-only"
     minimum_protocol_version = "TLSv1.2_2021"
+  }
+}
+
+# Domínios → CloudFront (ALIAS funciona também no apex).
+resource "aws_route53_record" "cdn" {
+  for_each = toset(flatten([for d in local.all_domains : ["${d}|A", "${d}|AAAA"]]))
+
+  zone_id         = data.aws_route53_zone.main.zone_id
+  name            = split("|", each.key)[0]
+  type            = split("|", each.key)[1]
+  allow_overwrite = true
+
+  alias {
+    name                   = aws_cloudfront_distribution.main.domain_name
+    zone_id                = aws_cloudfront_distribution.main.hosted_zone_id
+    evaluate_target_health = false
   }
 }
