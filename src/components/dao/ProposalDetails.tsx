@@ -84,7 +84,7 @@ export function ProposalDetails({ proposalId, onBack }: ProposalDetailsProps) {
     { label: 'Votacao encerrada', data: proposta.encerradaEm, done: Boolean(proposta.encerradaEm) },
     {
       label: isAprovada(proposta) ? 'Aprovada pela comunidade' : proposta.status === 'rejeitada' ? 'Rejeitada' : 'Aguardando resultado',
-      data: proposta.aprovadaEm,
+      data: isAprovada(proposta) ? proposta.aprovadaEm : proposta.rejeitadaEm ?? proposta.aprovadaEm,
       done: !aberta,
     },
     { label: `Situacao atual: ${STATUS_LABEL[proposta.status]}`, done: true },
@@ -122,6 +122,25 @@ export function ProposalDetails({ proposalId, onBack }: ProposalDetailsProps) {
             )}
           </div>
         </div>
+
+        {/* Rejeição pelo síndico (SÍN-005) — motivo, responsável e data da decisão. */}
+        {proposta.status === 'rejeitada' && proposta.motivoRejeicao && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-6 shadow-sm">
+            <div className="mb-2 flex items-center gap-2 text-red-700">
+              <XCircle className="h-5 w-5" />
+              <h2 className="font-medium">Proposta rejeitada</h2>
+            </div>
+            <p className="whitespace-pre-wrap text-sm text-red-800">{proposta.motivoRejeicao}</p>
+            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 border-t border-red-200 pt-3 text-xs text-red-700">
+              {proposta.rejeitadaPor && (
+                <span className="inline-flex items-center gap-1"><User className="h-3.5 w-3.5" /> Responsável: {proposta.rejeitadaPor}</span>
+              )}
+              {proposta.rejeitadaEm && (
+                <span className="inline-flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {formatData(proposta.rejeitadaEm)}</span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Apuracao */}
         <div className="rounded-2xl border border-wave-100 bg-white/80 p-6 shadow-lg backdrop-blur-sm">

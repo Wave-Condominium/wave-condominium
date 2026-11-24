@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Building2, Users, Receipt, Vote, ArrowRight, Loader2 } from 'lucide-react';
+import { Building2, Users, Receipt, Vote, ArrowRight, Loader2, Plus } from 'lucide-react';
 import {
   listCondominiosAction,
   selecionarCondominioAction,
@@ -58,16 +58,25 @@ export function AdministradoraPanel() {
   return (
     <div className="p-4 sm:p-6 lg:p-8 bg-brand-light min-h-screen relative">
       {/* Header */}
-      <div className="mb-6 sm:mb-8 relative z-10">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-9 h-9 rounded-xl bg-wave-500 flex items-center justify-center flex-shrink-0">
-            <Building2 className="w-5 h-5 text-white" />
+      <div className="mb-6 sm:mb-8 relative z-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-9 h-9 rounded-xl bg-wave-500 flex items-center justify-center flex-shrink-0">
+              <Building2 className="w-5 h-5 text-white" />
+            </div>
+            <h1 className="font-display text-brand-navy text-2xl sm:text-3xl">Painel da Administradora</h1>
           </div>
-          <h1 className="font-display text-brand-navy text-2xl sm:text-3xl">Painel da Administradora</h1>
+          <p className="text-wave-500">
+            Visao consolidada dos condominios sob sua gestao. Selecione um para gerenciar.
+          </p>
         </div>
-        <p className="text-wave-500">
-          Visao consolidada dos condominios sob sua gestao. Selecione um para gerenciar.
-        </p>
+        {/* SÍN-030: onboarding de um novo condomínio sob a administradora. */}
+        <button
+          onClick={() => router.push('/dashboard/onboarding')}
+          className="self-start inline-flex items-center gap-2 min-h-[48px] px-4 py-3 bg-gradient-to-r from-brand-deep to-brand-steel text-white rounded-xl hover:opacity-90 transition-all shadow-lg"
+        >
+          <Plus className="w-5 h-5" /> Cadastrar condomínio
+        </button>
       </div>
 
       {/* Metricas consolidadas */}

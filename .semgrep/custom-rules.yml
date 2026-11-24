@@ -1,0 +1,43 @@
+rules:
+  - id: wave-eval-arbitrary-code
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Uso de eval()/Function() com código dinâmico é um vetor de execução de
+      código arbitrário. Nunca usar em código de produção.
+    metadata:
+      category: security
+      cwe: "CWE-95: Eval Injection"
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: new Function(...)
+
+  - id: wave-dangerously-set-inner-html-unsanitized
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      dangerouslySetInnerHTML com valor não sanitizado é um vetor clássico
+      de XSS. Sanitize o HTML (ex.: DOMPurify) antes de usar, ou evite.
+    metadata:
+      category: security
+      cwe: "CWE-79: Cross-site Scripting"
+      owasp: "A03:2021 - Injection"
+    pattern: '<$COMP dangerouslySetInnerHTML={{ __html: $X }} ... />'
+
+  - id: wave-raw-sql-unsafe
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      $queryRawUnsafe/$executeRawUnsafe com string interpolada é um vetor
+      clássico de SQL Injection. Use $queryRaw com template tag (parametrizado)
+      em vez de montar a query por concatenação/interpolação.
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern-either:
+          - pattern: $DB.$queryRawUnsafe(`...${$X}...`)
+          - pattern: $DB.$executeRawUnsafe(`...${$X}...`)

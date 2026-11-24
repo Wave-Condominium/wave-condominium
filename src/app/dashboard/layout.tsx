@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import { Menu, Building2, ChevronLeft } from 'lucide-react';
 import { Sidebar } from '@/components/Sidebar';
+import { CondominioSwitcher } from '@/components/CondominioSwitcher';
 import { useUser } from '@/contexts/UserContext';
+import { PendenciasProvider } from '@/contexts/PendenciasContext';
+import { AlertasSegurancaProvider } from '@/contexts/AlertasSegurancaContext';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   contextoAdministradoraAction,
@@ -17,7 +20,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { userProfile, isAuthenticated, isLoading, logout } = useUser();
+  const { userProfile, isAuthenticated, isLoading, logout, setActiveProfile } = useUser();
   const router = useRouter();
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -76,10 +79,13 @@ export default function DashboardLayout({
     pathname !== PAINEL_ADM;
 
   return (
+    <PendenciasProvider>
+    <AlertasSegurancaProvider>
     <div className="flex min-h-screen bg-wave-50">
       <Sidebar
         userProfile={userProfile}
         onLogout={logout}
+        onSwitchProfile={(role) => { void setActiveProfile(role); }}
         isMobileOpen={isMobileMenuOpen}
         onMobileClose={() => setIsMobileMenuOpen(false)}
       />
@@ -98,6 +104,11 @@ export default function DashboardLayout({
           </button>
           <span className="font-serif text-lg text-wave-800">Wave</span>
         </header>
+
+        {/* Seletor de condomínio ativo (SÍN-031) — aparece para usuários com
+            vínculo em mais de um condomínio (ex.: síndico profissional). A
+            Administradora usa o próprio fluxo de painel/banner abaixo. */}
+        {userProfile.role !== 'Administradora' && <CondominioSwitcher />}
 
         {/* Banner de contexto da Administradora — indica qual condominio esta
             sendo gerenciado e permite voltar ao painel multi-condominio. */}
@@ -125,5 +136,7 @@ export default function DashboardLayout({
         </main>
       </div>
     </div>
+    </AlertasSegurancaProvider>
+    </PendenciasProvider>
   );
 }

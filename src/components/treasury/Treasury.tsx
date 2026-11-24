@@ -1,12 +1,18 @@
 ﻿import { useState } from 'react';
-import { Wallet, TrendingUp, TrendingDown, DollarSign, PieChart as PieChartIcon, Download, ExternalLink, Filter, CreditCard, Smartphone, X, AlertCircle, Users, Receipt, FileText, Send } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar } from 'recharts';
+import { Wallet, TrendingUp, TrendingDown, Download, CreditCard, Smartphone, X, AlertCircle, Users, Receipt, FileText, Send } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { useFinancialSummary, PAID_STATUS } from '../../hooks/useFinancialSummary';
 
 import { GenerateBoletoModal } from './GenerateBoletoModal';
+import { DespesasSection } from './DespesasSection';
+import { HistoricoTransacoes } from './HistoricoTransacoes';
+import { AdicionarDespesaModal } from './AdicionarDespesaModal';
+import { GestaoDespesas } from './GestaoDespesas';
+import { ConciliacaoPanel } from './ConciliacaoPanel';
+import { useDespesas } from './useDespesas';
 import { isManager, type Role } from '@/lib/rbac';
 
 interface TreasuryProps {
@@ -30,6 +36,7 @@ function formatBRL(value: number): string {
 export function Treasury({ userProfile }: TreasuryProps) {
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'card'>('pix');
   const [showGenerateBoletoModal, setShowGenerateBoletoModal] = useState(false);
+  const [showAddDespesa, setShowAddDespesa] = useState(false);
   const [view, setView] = useState<'overview' | 'boletos'>('overview');
 
   // Extraído para src/hooks/useFinancialSummary.ts — mesmo cálculo que o
@@ -48,9 +55,30 @@ export function Treasury({ userProfile }: TreasuryProps) {
     totalInadimplencia,
     unidadesInadimplentes,
     totalUnidadesConhecidas,
+    loading,
   } = useFinancialSummary();
 
   const isManagerRole = isManager(userProfile?.role);
+
+  // Despesas (SÍN-011) — fonte real (backend), compartilhada entre a seção
+  // "Despesas" (distribuição), a "Gestão de Despesas" e a série do gráfico de
+  // evolução. Estado único aqui garante que tudo reflita o mesmo dado.
+  const {
+    despesas,
+    loading: despesasLoading,
+    error: despesasError,
+    criar: criarDespesa,
+    registrarPagamento: registrarPagamentoDespesa,
+  } = useDespesas();
+
+  // Despesas PAGAS somadas por mês do pagamento (YYYY-MM) — alimenta a série
+  // "despesas" do gráfico de evolução com valores reais.
+  const despesasPagasPorMes = new Map<string, number>();
+  for (const d of despesas) {
+    if (d.status !== 'PAGO') continue;
+    const mesKey = (d.dataPagamento ?? d.dataVencimento).slice(0, 7);
+    despesasPagasPorMes.set(mesKey, (despesasPagasPorMes.get(mesKey) ?? 0) + d.valor);
+  }
 
   const metaFundoReserva = 100000; // meta ainda fixa — não há de onde derivar isso dos boletos
   const percentualMeta = metaFundoReserva > 0 ? Math.min(100, Math.round((fundoReserva / metaFundoReserva) * 100)) : 0;
@@ -78,7 +106,8 @@ export function Treasury({ userProfile }: TreasuryProps) {
         return {
           month: formatMonthLabel(monthKey),
           receitas,
-          despesas: 0, // aguardando módulo de despesas
+          // Despesas reais pagas no mês (SÍN-011).
+          despesas: despesasPagasPorMes.get(monthKey) ?? 0,
         };
       })
     : [];
@@ -86,12 +115,6 @@ export function Treasury({ userProfile }: TreasuryProps) {
   const handleExport = () => {
     toast.success('Exportação iniciada!', {
       description: 'O relatório será baixado em breve.'
-    });
-  };
-
-  const handleFilter = () => {
-    toast.info('Filtros avançados', {
-      description: 'Funcionalidade de filtros em desenvolvimento.'
     });
   };
 
@@ -110,82 +133,19 @@ export function Treasury({ userProfile }: TreasuryProps) {
     });
   };
 
-  // NOTA: "Despesas por Categoria" continua mock — não há, hoje, nenhuma
-  // fonte de dados de despesas no projeto (só existe o modelo de Boleto,
-  // que é receita). Quando existir um módulo de despesas, troca este array
-  // fixo pelos dados reais agrupados por categoria.
-  const expensesByCategory = [
-    { name: 'Limpeza', value: 8500, color: '#3b82f6' },
-    { name: 'Portaria', value: 12000, color: '#8b5cf6' },
-    { name: 'Manutenção', value: 6500, color: '#22c55e' },
-    { name: 'Energia', value: 4200, color: '#f59e0b' },
-    { name: 'Água', value: 1800, color: '#06b6d4' }
-  ];
-
-  // NOTA: "Histórico de Transações" também continua mock por enquanto — a
-  // parte de "despesa" não tem fonte de dados real ainda. Fora do escopo
-  // pedido nesta rodada; fica marcado aqui para não esquecer.
-  const transactions = [
-    {
-      id: '1',
-      type: 'receita',
-      description: 'Taxa Condominial - Novembro',
-      value: 'R$ 48.000,00',
-      date: '05/11/2025',
-      category: 'Receita',
-      status: 'Confirmado',
-      hash: '0x742d...8f2a',
-      proposal: null
-    },
-    {
-      id: '2',
-      type: 'despesa',
-      description: 'Pagamento - Empresa de Limpeza',
-      value: 'R$ 8.500,00',
-      date: '03/11/2025',
-      category: 'Limpeza',
-      status: 'Confirmado',
-      hash: '0x8a3c...5b1d',
-      proposal: 'Proposta #004'
-    },
-    {
-      id: '3',
-      type: 'despesa',
-      description: 'Salário - Portaria',
-      value: 'R$ 12.000,00',
-      date: '01/11/2025',
-      category: 'Portaria',
-      status: 'Confirmado',
-      hash: '0x1f5e...9c7a',
-      proposal: null
-    },
-    {
-      id: '4',
-      type: 'despesa',
-      description: 'Manutenção - Elevador',
-      value: 'R$ 3.200,00',
-      date: '28/10/2025',
-      category: 'Manutenção',
-      status: 'Confirmado',
-      hash: '0x6d2b...4e8f',
-      proposal: 'Proposta #012'
-    },
-    {
-      id: '5',
-      type: 'receita',
-      description: 'Taxa Condominial - Outubro',
-      value: 'R$ 45.500,00',
-      date: '05/10/2025',
-      category: 'Receita',
-      status: 'Confirmado',
-      hash: '0x9a7c...2d3e',
-      proposal: null
-    }
-  ];
+  if (loading) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 bg-brand-light min-h-screen">
+        <div className="rounded-2xl border border-wave-100 bg-white/80 p-12 text-center text-wave-500 shadow-lg backdrop-blur-sm">
+          Carregando dados financeiros...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 bg-brand-light min-h-screen relative">
-      
+
 
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6 sm:mb-8 relative z-10">
@@ -193,13 +153,18 @@ export function Treasury({ userProfile }: TreasuryProps) {
           <h1 className="font-display text-brand-navy text-2xl sm:text-3xl mb-2">Gestão Financeira</h1>
           <p className="text-wave-500">Transparência total com registros auditáveis</p>
         </div>
-        <button 
-          onClick={() => window.location.href = '/dashboard/boletos'}
-          className="px-4 py-3 bg-gradient-to-r from-brand-deep to-brand-steel text-white rounded-xl hover:from-wave-700 hover:to-wave-500 transition-all shadow-lg flex items-center gap-2"
-        >
-          <DollarSign className="w-5 h-5" />
-          Ir para Boletos
-        </button>
+        {/* MOR-054: "Ir para Boletos" foi substituído por "Adicionar Despesa",
+            disponível apenas para perfis administrativos (Síndico/Administradora).
+            O Morador é somente leitura — não vê este botão. */}
+        {isManagerRole && (
+          <button
+            onClick={() => setShowAddDespesa(true)}
+            className="px-4 py-3 bg-gradient-to-r from-brand-deep to-brand-steel text-white rounded-xl hover:from-wave-700 hover:to-wave-500 transition-all shadow-lg flex items-center gap-2"
+          >
+            <Receipt className="w-5 h-5" />
+            Adicionar Despesa
+          </button>
+        )}
       </div>
 
       {/* Balance Cards */}
@@ -247,6 +212,21 @@ export function Treasury({ userProfile }: TreasuryProps) {
           </p>
         </div>
       </div>
+
+      {/* Despesas — abaixo das Receitas: distribuição por categoria das despesas
+          pagas. Somente leitura para o Morador. */}
+      <DespesasSection despesas={despesas} periodoLabel={formatMonthLabel(currentMonthKey)} />
+
+      {/* Gestão de Despesas (SÍN-011) — registrar/acompanhar/consultar: só gestor. */}
+      {isManagerRole && (
+        <GestaoDespesas
+          despesas={despesas}
+          loading={despesasLoading}
+          error={despesasError}
+          onNovaDespesa={() => setShowAddDespesa(true)}
+          onRegistrarPagamento={registrarPagamentoDespesa}
+        />
+      )}
 
       {/* Admin: Gestão de Boletos */}
       {isManagerRole && (
@@ -382,10 +362,13 @@ export function Treasury({ userProfile }: TreasuryProps) {
         </div>
       )}
 
+      {/* Conciliação Boletos × Tesouraria (SÍN-010) — apenas gestor. */}
+      {isManagerRole && <ConciliacaoPanel />}
+
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 relative z-10">
+      <div className="grid grid-cols-1 gap-6 mb-8 relative z-10">
         {/* Balance Evolution */}
-        <div className="lg:col-span-2 bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-wave-100 shadow-lg">
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-wave-100 shadow-lg">
           <h3 className="text-wave-800 text-lg mb-6">Evolução Financeira (Últimos 6 Meses)</h3>
           {balanceData.length === 0 ? (
             <div className="h-[300px] flex items-center justify-center">
@@ -435,134 +418,15 @@ export function Treasury({ userProfile }: TreasuryProps) {
             </ResponsiveContainer>
           )}
           <p className="text-wave-400 text-xs italic mt-2">
-            * Despesas ainda não têm fonte de dados real neste projeto — aparecem zeradas até existir um módulo de despesas.
-          </p>
-        </div>
-
-        {/* Expenses by Category */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-6 border border-wave-100 shadow-lg">
-          <div className="flex items-center gap-2 mb-4">
-            <PieChartIcon className="w-5 h-5 text-wave-500" />
-            <h3 className="text-wave-800 text-lg">Despesas por Categoria</h3>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={expensesByCategory}
-                cx="50%"
-                cy="50%"
-                innerRadius={50}
-                outerRadius={80}
-                paddingAngle={5}
-                dataKey="value"
-              >
-                {expensesByCategory.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
-                ))}
-              </Pie>
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="space-y-2 mt-4">
-            {expensesByCategory.map((item) => (
-              <div key={item.name} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-sm text-wave-500">{item.name}</span>
-                </div>
-                <span className="text-sm text-wave-800">
-                  R$ {item.value.toLocaleString('pt-BR')}
-                </span>
-              </div>
-            ))}
-          </div>
-          <p className="text-wave-400 text-xs italic mt-3">
-            * Ainda mock — não há módulo de despesas por categoria implementado.
+            * Receitas dos boletos pagos e despesas efetivamente pagas por mês. A distribuição
+            por categoria está na seção "Despesas" acima; o registro e acompanhamento, em
+            "Gestão de Despesas".
           </p>
         </div>
       </div>
 
-      {/* Transactions */}
-      <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-wave-100 shadow-lg relative z-10">
-        <div className="p-6 border-b border-wave-100">
-          <div className="flex items-center justify-between">
-            <h3 className="text-wave-800 text-lg">Histórico de Transações</h3>
-            <div className="flex gap-2">
-              <button
-                onClick={handleFilter}
-                className="px-3 py-2 bg-wave-50 text-wave-500 rounded-lg hover:bg-wave-100 transition-colors flex items-center gap-2"
-              >
-                <Filter className="w-4 h-4" />
-                Filtros
-              </button>
-              <button
-                onClick={handleExport}
-                className="px-3 py-2 bg-gradient-to-r from-brand-deep to-brand-steel text-white rounded-lg hover:from-wave-700 hover:to-wave-500 transition-all shadow-lg flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Exportar
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-wave-50 border-b border-wave-100">
-              <tr>
-                <th className="px-6 py-4 text-left text-sm text-wave-500">Data</th>
-                <th className="px-6 py-4 text-left text-sm text-wave-500">Descrição</th>
-                <th className="px-6 py-4 text-left text-sm text-wave-500">Categoria</th>
-                <th className="px-6 py-4 text-left text-sm text-wave-500">Valor</th>
-                <th className="px-6 py-4 text-left text-sm text-wave-500">Status</th>
-                <th className="px-6 py-4 text-left text-sm text-wave-500">Hash</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-blue-50">
-              {transactions.map((tx) => (
-                <tr key={tx.id} className="hover:bg-wave-50/50 transition-colors">
-                  <td className="px-6 py-4 text-wave-500 text-sm">{tx.date}</td>
-                  <td className="px-6 py-4">
-                    <p className="text-wave-800">{tx.description}</p>
-                    {tx.proposal && (
-                      <p className="text-wave-500 text-sm">{tx.proposal}</p>
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      tx.type === 'receita'
-                        ? 'bg-brand-teal/15 text-brand-teal'
-                        : 'bg-wave-100 text-wave-600'
-                    }`}>
-                      {tx.category}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className={`${
-                      tx.type === 'receita' ? 'text-brand-teal' : 'text-wave-800'
-                    }`}>
-                      {tx.value}
-                    </p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="px-2 py-1 bg-brand-teal/10 text-brand-teal rounded-full text-xs">
-                      {tx.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <button className="text-wave-500 hover:text-wave-500 font-mono text-sm flex items-center gap-1">
-                      {tx.hash}
-                      <ExternalLink className="w-3 h-3" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className="text-wave-400 text-xs italic px-6 pb-4">
-          * Esta tabela ainda é mock (mistura receita/despesa) — fora do escopo desta rodada de correção.
-        </p>
-      </div>
+      {/* Histórico de Transações (MOR-053) — receitas + despesas, cronológico */}
+      <HistoricoTransacoes despesas={despesas} />
 
       {/* Blockchain Info */}
       <div className="mt-8 bg-gradient-to-r from-brand-deep to-brand-steel rounded-2xl p-6 border border-wave-200 shadow-lg relative z-10">
@@ -583,6 +447,14 @@ export function Treasury({ userProfile }: TreasuryProps) {
         <GenerateBoletoModal
           onClose={() => setShowGenerateBoletoModal(false)}
           onGenerate={handleGenerateBoletos}
+        />
+      )}
+
+      {/* Adicionar Despesa (SÍN-011) — apenas gestor */}
+      {isManagerRole && showAddDespesa && (
+        <AdicionarDespesaModal
+          onClose={() => setShowAddDespesa(false)}
+          onCreate={criarDespesa}
         />
       )}
     </div>

@@ -21,6 +21,7 @@ import type {
 } from "@prisma/client";
 import { requireSession, requireManager } from "@/server/auth/guard";
 import { propostaRepository } from "@/server/repositories/propostaRepository";
+import { userRepository } from "@/server/repositories/userRepository";
 import {
   type Categoria,
   type Proposta,
@@ -28,6 +29,7 @@ import {
   type VoteChoice,
   DIAS_VOTACAO,
 } from "@/components/dao/governanceCore";
+import { validarMotivoRejeicao } from "@/components/dao/rejeicao";
 
 // --- mapeamentos app <-> banco ----------------------------------------------
 
@@ -67,6 +69,9 @@ function toApp(row: any): Proposta {
     votos,
     encerradaEm: row.encerradaEm ? new Date(row.encerradaEm).toISOString() : undefined,
     aprovadaEm: row.aprovadaEm ? new Date(row.aprovadaEm).toISOString() : undefined,
+    motivoRejeicao: row.motivoRejeicao ?? undefined,
+    rejeitadaPor: row.rejeitadaPor ?? undefined,
+    rejeitadaEm: row.rejeitadaEm ? new Date(row.rejeitadaEm).toISOString() : undefined,
     comentarios: [],
   };
 }
@@ -167,10 +172,88 @@ export async function encerrarVotacaoAction(propostaId: string): Promise<{ ok: b
   return { ok: true };
 }
 
-/** Remove uma proposta (gestor). */
-export async function removerPropostaAction(propostaId: string): Promise<{ ok: boolean }> {
+/**
+ * Homologa (aprova) uma proposta APROVADA pela comunidade, encaminhando-a para
+ * a assembleia (SÍN-026). É a decisão positiva do Síndico na Central de
+ * Aprovações: só transita de APROVADA_COMUNIDADE -> EM_ASSEMBLEIA, preservando
+ * a rastreabilidade e sem interferir no fluxo de votação.
+ */
+export async function homologarPropostaAction(propostaId: string): Promise<{ ok: boolean; error?: string }> {
   const session = await requireManager();
-  if (!session.condominiumId) return { ok: false };
-  await propostaRepository.remove(propostaId, session.condominiumId);
+  if (!session.condominiumId) return { ok: false, error: "Condomínio ativo não identificado na sessão." };
+
+  const p = await propostaRepository.findById(propostaId, session.condominiumId);
+  if (!p) return { ok: false, error: "Proposta não encontrada." };
+  if (p.status !== "APROVADA_COMUNIDADE") {
+    return { ok: false, error: "Só é possível homologar propostas aprovadas pela comunidade." };
+  }
+
+  await propostaRepository.update(propostaId, session.condominiumId, { status: "EM_ASSEMBLEIA" });
+
+  console.info(
+    "[governanca.homologarProposta]",
+    JSON.stringify({
+      evento: "PROPOSTA_HOMOLOGADA",
+      propostaId,
+      condominiumId: session.condominiumId,
+      responsavelId: session.userId,
+      em: new Date().toISOString(),
+    }),
+  );
   return { ok: true };
+}
+
+export type RejeitarResult =
+  | { ok: true; proposta: Proposta }
+  | { ok: false; error: string };
+
+/**
+ * Rejeita uma proposta (gestor) preservando a rastreabilidade (SÍN-005).
+ *
+ * A proposta NÃO é excluída: passa a REJEITADA e grava a trilha de auditoria
+ * (motivo obrigatório, responsável pela decisão, data/hora). A justificativa é
+ * validada NO SERVIDOR — nunca se confia apenas no cliente.
+ */
+export async function rejeitarPropostaAction(
+  propostaId: string,
+  motivo: string,
+): Promise<RejeitarResult> {
+  const session = await requireManager();
+  if (!session.condominiumId) return { ok: false, error: "Condomínio ativo não identificado na sessão." };
+
+  const validacao = validarMotivoRejeicao(motivo);
+  if (!validacao.ok) return { ok: false, error: validacao.erro };
+
+  const proposta = await propostaRepository.findById(propostaId, session.condominiumId);
+  if (!proposta) return { ok: false, error: "Proposta não encontrada." };
+  if (proposta.status === "REJEITADA") {
+    return { ok: false, error: "Esta proposta já está rejeitada." };
+  }
+
+  const responsavel = await userRepository.findById(session.userId);
+  const agora = new Date();
+  await propostaRepository.rejeitar(propostaId, session.condominiumId, {
+    motivoRejeicao: validacao.motivo,
+    rejeitadaPor: responsavel?.name ?? "Gestor",
+    rejeitadaPorId: session.userId,
+    rejeitadaEm: agora,
+    encerradaEm: proposta.encerradaEm ?? agora,
+  });
+
+  // Registro de auditoria (log estruturado no servidor — sem dados sensíveis).
+  console.info(
+    "[governanca.rejeitarProposta]",
+    JSON.stringify({
+      evento: "PROPOSTA_REJEITADA",
+      propostaId,
+      condominiumId: session.condominiumId,
+      rejeitadaPorId: session.userId,
+      rejeitadaEm: agora.toISOString(),
+    }),
+  );
+
+  const atualizada = await propostaRepository.findById(propostaId, session.condominiumId);
+  return atualizada
+    ? { ok: true, proposta: toApp(atualizada) }
+    : { ok: false, error: "Falha ao carregar a proposta rejeitada." };
 }

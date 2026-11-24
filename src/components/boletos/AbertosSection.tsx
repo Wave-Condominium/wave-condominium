@@ -1,6 +1,6 @@
 'use client';
 
-import { Receipt, CalendarClock, DollarSign } from 'lucide-react';
+import { Receipt, CalendarClock, DollarSign, BellRing, HandCoins } from 'lucide-react';
 
 import type { BoletoFull } from './boletoTypes';
 import { formatCurrency, formatCompetencia, formatDateBR, resolveStatusAberto } from './boletoFormat';
@@ -8,12 +8,29 @@ import { StatusAbertoBadge } from './badges';
 
 interface AbertosSectionProps {
   boletos: BoletoFull[];
+  /** Morador paga o próprio boleto; gestor NÃO paga — só faz cobrança (SÍN-009). */
+  canPay: boolean;
   onVerDetalhes: (b: BoletoFull) => void;
   onPagar: (b: BoletoFull) => void;
+  onEnviarLembrete?: (b: BoletoFull) => void;
+  onRegistrarAcordo?: (b: BoletoFull) => void;
 }
 
-/** Secao "Boletos em Aberto" — pendentes/vencidos da unidade do morador. */
-export function AbertosSection({ boletos, onVerDetalhes, onPagar }: AbertosSectionProps) {
+/** 'YYYY-MM-DDTHH:mm...' ISO -> 'DD/MM/AAAA' sem depender de timezone. */
+function formatDataISO(iso?: string): string {
+  if (!iso) return '';
+  return formatDateBR(iso.slice(0, 10));
+}
+
+/** Secao "Boletos em Aberto" — pendentes/vencidos. */
+export function AbertosSection({
+  boletos,
+  canPay,
+  onVerDetalhes,
+  onPagar,
+  onEnviarLembrete,
+  onRegistrarAcordo,
+}: AbertosSectionProps) {
   if (boletos.length === 0) {
     return (
       <EmptyState
@@ -54,6 +71,23 @@ export function AbertosSection({ boletos, onVerDetalhes, onPagar }: AbertosSecti
               <Field label="Valor" value={formatCurrency(b.amount)} strong />
             </div>
 
+            {/* Indicadores de cobrança (SÍN-009): lembrete enviado / acordo firmado. */}
+            {(b.lastReminderAt || b.acordoParcelas) && (
+              <div className="mb-4 flex flex-wrap gap-2">
+                {b.lastReminderAt && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-xs text-amber-700">
+                    <BellRing className="h-3.5 w-3.5" /> Lembrete enviado em {formatDataISO(b.lastReminderAt)}
+                  </span>
+                )}
+                {b.acordoParcelas && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-teal/10 px-3 py-1 text-xs text-brand-teal">
+                    <HandCoins className="h-3.5 w-3.5" /> Acordo: {b.acordoParcelas}x
+                    {b.acordoPrimeiraParcela ? ` a partir de ${formatDateBR(b.acordoPrimeiraParcela)}` : ''}
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 onClick={() => onVerDetalhes(b)}
@@ -62,13 +96,39 @@ export function AbertosSection({ boletos, onVerDetalhes, onPagar }: AbertosSecti
                 <Receipt className="h-5 w-5" />
                 Ver detalhes
               </button>
-              <button
-                onClick={() => onPagar(b)}
-                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-wave-800 py-2.5 text-white transition-colors hover:bg-wave-700"
-              >
-                <DollarSign className="h-5 w-5" />
-                Pagar
-              </button>
+
+              {canPay ? (
+                // Morador paga o próprio boleto.
+                <button
+                  onClick={() => onPagar(b)}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-wave-800 py-2.5 text-white transition-colors hover:bg-wave-700"
+                >
+                  <DollarSign className="h-5 w-5" />
+                  Pagar
+                </button>
+              ) : (
+                // Gestor: sem opção de pagar — apenas ações de cobrança (SÍN-009).
+                <>
+                  {onEnviarLembrete && (
+                    <button
+                      onClick={() => onEnviarLembrete(b)}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-amber-200 bg-white py-2.5 text-amber-700 transition-colors hover:bg-amber-50"
+                    >
+                      <BellRing className="h-5 w-5" />
+                      Enviar lembrete
+                    </button>
+                  )}
+                  {onRegistrarAcordo && (
+                    <button
+                      onClick={() => onRegistrarAcordo(b)}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-brand-teal py-2.5 text-white transition-colors hover:opacity-90"
+                    >
+                      <HandCoins className="h-5 w-5" />
+                      {b.acordoParcelas ? 'Editar acordo' : 'Registrar acordo'}
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
         );

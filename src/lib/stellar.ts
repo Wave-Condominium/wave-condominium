@@ -8,6 +8,7 @@ import {
   Memo,
   BASE_FEE,
 } from '@stellar/stellar-sdk';
+import { registrarEventoSeguranca } from '@/server/security/registrarEventoSeguranca';
 
 /**
  * Wave · Camada de Ancoragem na Stellar
@@ -82,12 +83,27 @@ export interface AnchorResult {
 /**
  * Ancora um hash de 32 bytes (ex: SHA-256 hex de 64 caracteres) na Stellar,
  * usando o campo memo_hash de uma transação simples.
+ *
+ * SEG-007 — `contexto` é opcional (todos os chamadores hoje já passam
+ * sessão disponível) e serve só para o registro de segurança: quem pediu a
+ * assinatura, de qual condomínio, e a origem (qual fluxo chamou). A chave
+ * privada em si NUNCA entra no evento — só metadados sobre a solicitação.
  */
-export async function anchorHashOnStellar(hashHex: string): Promise<AnchorResult> {
+export interface ContextoAssinatura {
+  userId?: string | null;
+  condominiumId?: string | null;
+  origem: string; // ex.: "blockchain.registerVoteOnChain", "despesas.anexarComprovante"
+}
+
+export async function anchorHashOnStellar(
+  hashHex: string,
+  contexto?: ContextoAssinatura
+): Promise<AnchorResult> {
   const network: 'testnet' | 'mainnet' = 'testnet';
 
   try {
-    console.log('[Stellar] anchorHashOnStellar chamado, hash:', hashHex);const cleanHash = hashHex.replace(/^0x/, '');
+    console.log('[Stellar] anchorHashOnStellar chamado, hash:', hashHex);
+    const cleanHash = hashHex.replace(/^0x/, '');
 
     if (cleanHash.length !== 64) {
       throw new Error(
@@ -130,6 +146,17 @@ export async function anchorHashOnStellar(hashHex: string): Promise<AnchorResult
 
     const result = await server.submitTransaction(transaction);
 
+    if (contexto) {
+      await registrarEventoSeguranca({
+        tipo: 'ASSINATURA_EMISSORA_SUCESSO',
+        resultado: 'SUCESSO',
+        userId: contexto.userId ?? null,
+        condominiumId: contexto.condominiumId ?? null,
+        recurso: contexto.origem,
+        metadata: { stellarTxHash: result.hash, ledger: result.ledger ?? null },
+      });
+    }
+
     return {
       success: true,
       txHash: result.hash,
@@ -139,6 +166,20 @@ export async function anchorHashOnStellar(hashHex: string): Promise<AnchorResult
       network,
     };
   } catch (err: any) {
+    if (contexto) {
+      await registrarEventoSeguranca({
+        tipo: 'ASSINATURA_EMISSORA_FALHA',
+        resultado: 'FALHA',
+        userId: contexto.userId ?? null,
+        condominiumId: contexto.condominiumId ?? null,
+        recurso: contexto.origem,
+        // Nunca inclua err.message bruto sem revisão: o SDK Stellar não
+        // vaza a chave nas próprias mensagens (a assinatura é sempre local,
+        // a chave nunca trafega pela rede), mas guardamos só uma versão
+        // curta por cautela — nunca o objeto de erro inteiro.
+        metadata: { motivo: String(err?.message ?? 'erro desconhecido').slice(0, 300) },
+      });
+    }
     return {
       success: false,
       txHash: '',

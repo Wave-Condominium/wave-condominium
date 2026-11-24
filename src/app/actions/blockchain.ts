@@ -3,16 +3,24 @@
 /**
  * Wave - Server Actions de Ancoragem na Blockchain (Stellar)
  * Agora protegidas: toda action exige sessao; acoes de gestao exigem gestor.
+ *
+ * SEG-007: cada chamada de anchorHashOnStellar passa `contexto` (userId,
+ * condominiumId, origem) para o registro de segurança da conta emissora —
+ * ver src/lib/stellar.ts.
  */
 
 import { anchorHashOnStellar, sha256Hex, verifyAnchoredHash } from "@/lib/stellar";
 import { requireSession, requireManager } from "@/server/auth/guard";
 
 export async function registerVoteOnChain(proposalId: string, vote: string, userId: string) {
-  await requireSession(); // qualquer morador autenticado pode votar
+  const session = await requireSession(); // qualquer morador autenticado pode votar
   const payload = JSON.stringify({ proposalId, vote, userId, ts: Date.now() });
   const hash = await sha256Hex(payload);
-  const result = await anchorHashOnStellar(hash);
+  const result = await anchorHashOnStellar(hash, {
+    userId: session.userId,
+    condominiumId: session.condominiumId ?? null,
+    origem: "blockchain.registerVoteOnChain",
+  });
 
   return {
     success: result.success,
@@ -25,10 +33,14 @@ export async function registerVoteOnChain(proposalId: string, vote: string, user
 }
 
 export async function createProposalOnChain(proposalData: any, userId: string) {
-  await requireManager(); // aprovar/registrar proposta e ato de gestao
+  const session = await requireManager(); // aprovar/registrar proposta e ato de gestao
   const payload = JSON.stringify({ proposalData, userId, ts: Date.now() });
   const hash = await sha256Hex(payload);
-  const result = await anchorHashOnStellar(hash);
+  const result = await anchorHashOnStellar(hash, {
+    userId: session.userId,
+    condominiumId: session.condominiumId ?? null,
+    origem: "blockchain.createProposalOnChain",
+  });
 
   return {
     success: result.success,
@@ -42,9 +54,13 @@ export async function createProposalOnChain(proposalData: any, userId: string) {
 }
 
 export async function registerDocumentOnChain(docHash: string, userId: string) {
-  await requireManager(); // registrar ata/prestacao de contas e ato de gestao
+  const session = await requireManager(); // registrar ata/prestacao de contas e ato de gestao
   const cleanHash = docHash.replace(/^0x/, "");
-  const result = await anchorHashOnStellar(cleanHash);
+  const result = await anchorHashOnStellar(cleanHash, {
+    userId: session.userId,
+    condominiumId: session.condominiumId ?? null,
+    origem: "blockchain.registerDocumentOnChain",
+  });
 
   return {
     success: result.success,
@@ -83,10 +99,14 @@ export async function hashDocument(content: string) {
 }
 
 export async function anchorMetadataOnChain(metadata: Record<string, unknown>) {
-  await requireSession();
+  const session = await requireSession();
   const payload = JSON.stringify(metadata);
   const hash = await sha256Hex(payload);
-  const result = await anchorHashOnStellar(hash);
+  const result = await anchorHashOnStellar(hash, {
+    userId: session.userId,
+    condominiumId: session.condominiumId ?? null,
+    origem: "blockchain.anchorMetadataOnChain",
+  });
 
   return {
     success: result.success,

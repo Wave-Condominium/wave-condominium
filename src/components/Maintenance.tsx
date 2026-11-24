@@ -3,13 +3,21 @@ import { useState, useMemo, useCallback } from 'react';
 import {
   Wrench, CheckCircle, AlertCircle, Calendar, Shield, Bell, Plus,
   X, Clock, ChevronRight, FileText, Send, Eye, ShieldCheck,
-  CalendarClock, CircleDot, Info,
+  CalendarClock, CircleDot, Info, Building2,
 } from 'lucide-react';
 
 import { CreateMaintenanceModal } from './maintenance/CreateMaintenanceModal';
+import { SolicitacoesCorretivas } from './maintenance/SolicitacoesCorretivas';
 import { InspectionOrderModal } from './maintenance/InspectionOrderModal';
+import { BuildingMaintenanceSection } from './maintenance/BuildingMaintenanceSection';
+import {
+  BUILDING_WARRANTIES,
+  BUILDING_COMPLIANCE,
+  getWarrantyHealth,
+} from './maintenance/buildingMaintenance';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { useMaintenanceOrders, type MaintenanceOrder } from '../hooks/useMaintenanceOrders';
+import { useMaintenanceOrders, type MaintenanceOrder, type UnifiedMaintenanceOrder } from '../hooks/useMaintenanceOrders';
+import { acaoMudancaStatus, formatCustoBRL, formatDataHora } from './maintenance/ordemServico';
 import { useUser } from '@/contexts/UserContext';
 import { isManager } from '@/lib/rbac';
 
@@ -21,18 +29,20 @@ export function Maintenance() {
   const { userProfile } = useUser();
   const canManage = isManager(userProfile.role);
 
+  // RBAC: a GESTÃO da manutenção (criar/editar/concluir OS, abrir vistorias) é
+  // renderizada APENAS para perfis gestores (Síndico/Administrador) via
+  // ManagerMaintenanceView — este roteamento por perfil é o bloqueio efetivo de
+  // qualquer ação, inclusive ao acessar /dashboard/maintenance pela URL.
+  // O Morador recebe a MoradorMaintenanceView, que inclui a aba "Prédio":
+  // uma visão SOMENTE LEITURA da Manutenção Geral do Prédio (garantias,
+  // conformidade e manutenções coletivas) — consulta e acompanhamento, sem
+  // qualquer controle de criação/edição/exclusão.
   return canManage ? <ManagerMaintenanceView /> : <MoradorMaintenanceView />;
 }
 
 // ===========================================================================
 // MORADOR — Preventiva + Corretiva (abas)
 // ===========================================================================
-
-const MORADOR_STATUS_CONFIG = {
-  pending: { label: 'Aberta', color: 'text-orange-700', bg: 'bg-orange-100', Icon: Clock },
-  progress: { label: 'Em Andamento', color: 'text-blue-700', bg: 'bg-blue-100', Icon: Wrench },
-  completed: { label: 'Concluída', color: 'text-emerald-700', bg: 'bg-emerald-100', Icon: CheckCircle },
-} as const;
 
 const MORADOR_CATEGORIES = [
   'Elétrica',
@@ -129,17 +139,12 @@ const DEFAULT_PREVENTIVE_ITEMS: PreventiveItem[] = [
 
 function MoradorMaintenanceView() {
   const { userProfile } = useUser();
-  const [activeTab, setActiveTab] = useState<'preventiva' | 'corretiva'>('preventiva');
-  const [filter, setFilter] = useState<'all' | 'pending' | 'progress' | 'completed'>('all');
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<MaintenanceOrder | null>(null);
+  const [activeTab, setActiveTab] = useState<'preventiva' | 'corretiva' | 'predio'>('preventiva');
   const [selectedPreventive, setSelectedPreventive] = useState<PreventiveItem | null>(null);
 
-  const {
-    allOrders,
-    maintenanceOrders,
-    setMaintenanceOrders,
-  } = useMaintenanceOrders();
+  // `allOrders` continua alimentando a aba "Prédio" (manutenção coletiva, MOR-033).
+  // A aba "Corretiva" agora é DB-backed (SolicitacoesCorretivas).
+  const { allOrders } = useMaintenanceOrders();
 
   const [preventiveItems] = useLocalStorage<PreventiveItem[]>(
     'wave_preventive_maintenance',
@@ -161,59 +166,6 @@ function MoradorMaintenanceView() {
     });
   }, [preventiveItems, userUnit]);
 
-  // --- Corretiva: OS da unidade ---
-  const myOrders = useMemo(() => {
-    if (!userUnit) return [];
-    return allOrders.filter((o) => {
-      const orderUnit = (o.unit || '').replace(/^apto\s*/i, '').trim();
-      return orderUnit === userUnit;
-    });
-  }, [allOrders, userUnit]);
-
-  const filteredOrders = useMemo(() => {
-    if (filter === 'all') return myOrders;
-    return myOrders.filter((o) => o.status === filter);
-  }, [myOrders, filter]);
-
-  const counts = useMemo(() => ({
-    all: myOrders.length,
-    pending: myOrders.filter((o) => o.status === 'pending').length,
-    progress: myOrders.filter((o) => o.status === 'progress').length,
-    completed: myOrders.filter((o) => o.status === 'completed').length,
-  }), [myOrders]);
-
-  const handleCreateOrder = useCallback((formData: {
-    title: string;
-    category: string;
-    priority: string;
-    description: string;
-  }) => {
-    if (!userUnit) {
-      toast.error('Não foi possível identificar sua unidade.');
-      return;
-    }
-
-    const newOrder: MaintenanceOrder = {
-      id: `OS-${Date.now().toString().slice(-4)}`,
-      title: formData.title,
-      priority: formData.priority as 'high' | 'medium' | 'low',
-      status: 'pending',
-      openedDate: new Date().toLocaleDateString('pt-BR'),
-      assignedTo: null,
-      category: formData.category,
-      hasDocument: false,
-      description: formData.description,
-      unit: userUnit,
-      origin: 'morador',
-      createdByName: userProfile.name,
-      createdById: userProfile.id,
-    };
-
-    setMaintenanceOrders([...maintenanceOrders, newOrder]);
-    setShowCreateModal(false);
-    toast.success('Solicitação registrada! Acompanhe o andamento aqui.');
-  }, [userUnit, userProfile, maintenanceOrders, setMaintenanceOrders]);
-
   return (
     <div className="p-4 sm:p-6 lg:p-8 bg-brand-light min-h-screen">
       {/* Header */}
@@ -227,18 +179,9 @@ function MoradorMaintenanceView() {
             {userUnit && <span className="font-medium text-wave-700"> — Unidade {userUnit}</span>}
           </p>
         </div>
-        {activeTab === 'corretiva' && (
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="px-5 py-3 bg-gradient-to-r from-brand-deep to-brand-steel text-white rounded-xl hover:from-wave-700 hover:to-wave-500 transition-all shadow-lg flex items-center gap-2"
-          >
-            <Plus className="w-5 h-5" />
-            Nova Solicitação
-          </button>
-        )}
       </div>
 
-      {/* Tabs — Preventiva / Corretiva */}
+      {/* Tabs — Preventiva / Corretiva / Prédio */}
       <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-1.5 border border-wave-100 mb-6 shadow-sm inline-flex gap-1 w-full sm:w-auto">
         <button
           onClick={() => setActiveTab('preventiva')}
@@ -261,11 +204,17 @@ function MoradorMaintenanceView() {
         >
           <Wrench className="w-4 h-4" />
           Corretiva
-          {counts.pending > 0 && (
-            <span className="px-1.5 py-0.5 bg-orange-500 text-white text-xs rounded-full leading-none">
-              {counts.pending}
-            </span>
-          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('predio')}
+          className={`flex-1 sm:flex-none px-5 py-2.5 rounded-xl transition-all text-sm font-medium flex items-center justify-center gap-2 ${
+            activeTab === 'predio'
+              ? 'bg-gradient-to-r from-brand-deep to-brand-steel text-white shadow-lg'
+              : 'text-wave-500 hover:bg-wave-50'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          Prédio
         </button>
       </div>
 
@@ -366,140 +315,25 @@ function MoradorMaintenanceView() {
       {/* ================================================================= */}
       {activeTab === 'corretiva' && (
         <>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-wave-100 p-4 text-center shadow-sm">
-              <p className="text-2xl font-bold text-orange-600">{counts.pending}</p>
-              <p className="text-sm text-wave-500">Abertas</p>
-            </div>
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-wave-100 p-4 text-center shadow-sm">
-              <p className="text-2xl font-bold text-blue-600">{counts.progress}</p>
-              <p className="text-sm text-wave-500">Em Andamento</p>
-            </div>
-            <div className="bg-white/80 backdrop-blur-sm rounded-xl border border-wave-100 p-4 text-center shadow-sm">
-              <p className="text-2xl font-bold text-emerald-600">{counts.completed}</p>
-              <p className="text-sm text-wave-500">Concluídas</p>
-            </div>
-          </div>
-
-          {/* Filters */}
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-3 border border-wave-100 mb-6 shadow-sm">
-            <div className="flex gap-2 overflow-x-auto">
-              {([
-                { key: 'all', label: 'Todas' },
-                { key: 'pending', label: 'Abertas' },
-                { key: 'progress', label: 'Em Andamento' },
-                { key: 'completed', label: 'Concluídas' },
-              ] as const).map(({ key, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setFilter(key)}
-                  className={`px-4 py-2 rounded-xl transition-all whitespace-nowrap text-sm ${
-                    filter === key
-                      ? 'bg-gradient-to-r from-brand-deep to-brand-steel text-white shadow-lg'
-                      : 'bg-wave-50 text-wave-500 hover:bg-wave-100'
-                  }`}
-                >
-                  {label} ({counts[key]})
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Orders List */}
-          {filteredOrders.length === 0 ? (
-            <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-wave-100 p-12 text-center shadow-sm">
-              <Wrench className="w-12 h-12 text-wave-300 mx-auto mb-4" />
-              <h3 className="text-wave-700 text-lg mb-2">
-                {filter === 'all'
-                  ? 'Nenhuma solicitação registrada'
-                  : `Nenhuma solicitação ${filter === 'pending' ? 'aberta' : filter === 'progress' ? 'em andamento' : 'concluída'}`}
-              </h3>
-              <p className="text-wave-400 text-sm mb-4">
-                {filter === 'all'
-                  ? 'Precisa de um reparo na sua unidade? Clique em "Nova Solicitação".'
-                  : 'Tente outro filtro para ver suas solicitações.'}
-              </p>
-              {filter === 'all' && (
-                <button
-                  onClick={() => setShowCreateModal(true)}
-                  className="px-5 py-2.5 bg-gradient-to-r from-brand-deep to-brand-steel text-white rounded-xl hover:opacity-90 transition-all shadow-lg inline-flex items-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  Nova Solicitação
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredOrders.map((order) => {
-                const cfg = MORADOR_STATUS_CONFIG[order.status] || MORADOR_STATUS_CONFIG.pending;
-                const StatusIcon = cfg.Icon;
-                return (
-                  <div
-                    key={order.id}
-                    className="bg-white/80 backdrop-blur-sm rounded-2xl border border-wave-100 p-5 shadow-sm hover:shadow-md transition-all cursor-pointer"
-                    onClick={() => setSelectedOrder(order as MaintenanceOrder)}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                          <h3 className="text-wave-800 text-lg truncate">{order.title}</h3>
-                          <span className={`px-2.5 py-0.5 rounded text-xs font-medium ${
-                            order.priority === 'high' ? 'bg-red-100 text-red-700' :
-                            order.priority === 'medium' ? 'bg-orange-100 text-orange-700' :
-                            'bg-blue-100 text-blue-700'
-                          }`}>
-                            {order.priority === 'high' ? 'Urgente' : order.priority === 'medium' ? 'Média' : 'Baixa'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3 text-sm text-wave-500 flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5" />
-                            {order.openedDate}
-                          </span>
-                          <span>•</span>
-                          <span>{order.category}</span>
-                          <span className="text-wave-300">|</span>
-                          <span className="text-wave-400">{order.id}</span>
-                        </div>
-                        {order.assignedTo && (
-                          <p className="text-sm text-wave-500 mt-1.5">
-                            Responsável: <span className="text-wave-700">{order.assignedTo}</span>
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className={`px-3 py-1.5 rounded-full text-sm flex items-center gap-1.5 ${cfg.bg} ${cfg.color}`}>
-                          <StatusIcon className="w-3.5 h-3.5" />
-                          {cfg.label}
-                        </span>
-                        <ChevronRight className="w-4 h-4 text-wave-300" />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {/* SÍN-026: solicitações do morador em banco, decididas pelo síndico na Central. */}
+          <SolicitacoesCorretivas />
 
           {/* Info box */}
           <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
             <Info className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
             <p className="text-blue-700 text-sm">
               A manutenção corretiva resolve problemas que já aconteceram. Aqui você solicita
-              reparos e acompanha o andamento das suas solicitações.
+              reparos e o síndico analisa cada pedido antes de encaminhar.
             </p>
           </div>
         </>
       )}
 
-      {/* Order Detail Modal (Corretiva) */}
-      {selectedOrder && (
-        <MoradorOrderDetailModal
-          order={selectedOrder}
-          onClose={() => setSelectedOrder(null)}
-        />
+      {/* ================================================================= */}
+      {/* ABA — MANUTENÇÃO GERAL DO PRÉDIO (somente leitura)                */}
+      {/* ================================================================= */}
+      {activeTab === 'predio' && (
+        <BuildingMaintenanceSection orders={allOrders} />
       )}
 
       {/* Preventive Detail Modal */}
@@ -507,15 +341,6 @@ function MoradorMaintenanceView() {
         <PreventiveDetailModal
           item={selectedPreventive}
           onClose={() => setSelectedPreventive(null)}
-        />
-      )}
-
-      {/* Create Order Modal (Corretiva) */}
-      {showCreateModal && (
-        <MoradorCreateOSModal
-          userUnit={userUnit}
-          onClose={() => setShowCreateModal(false)}
-          onCreate={handleCreateOrder}
         />
       )}
     </div>
@@ -618,302 +443,20 @@ function PreventiveDetailModal({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Modal — Detalhe da OS (Morador)
-// ---------------------------------------------------------------------------
-
-function MoradorOrderDetailModal({
-  order,
-  onClose,
-}: {
-  order: MaintenanceOrder;
-  onClose: () => void;
-}) {
-  const cfg = MORADOR_STATUS_CONFIG[order.status] || MORADOR_STATUS_CONFIG.pending;
-  const StatusIcon = cfg.Icon;
-
-  const steps = [
-    { key: 'pending', label: 'Aberta', done: true },
-    { key: 'progress', label: 'Em Andamento', done: order.status === 'progress' || order.status === 'completed' },
-    { key: 'completed', label: 'Concluída', done: order.status === 'completed' },
-  ];
-
-  return (
-    <div className="fixed inset-0 bg-blue-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-blue-100">
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-blue-100 p-5 z-10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-wave-400 rounded-xl">
-                <Eye className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h2 className="text-blue-900 text-xl">Detalhes da Solicitação</h2>
-                <p className="text-wave-400 text-sm">{order.id}</p>
-              </div>
-            </div>
-            <button onClick={onClose} className="p-2 hover:bg-blue-50 rounded-lg transition-colors">
-              <X className="w-5 h-5 text-blue-600" />
-            </button>
-          </div>
-        </div>
-
-        <div className="p-5 space-y-5">
-          {/* Title & Status */}
-          <div>
-            <h3 className="text-wave-800 text-lg mb-2">{order.title}</h3>
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm ${cfg.bg} ${cfg.color}`}>
-              <StatusIcon className="w-4 h-4" />
-              {cfg.label}
-            </span>
-          </div>
-
-          {/* Info Grid */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-wave-50 rounded-xl p-3">
-              <p className="text-wave-400 text-xs mb-1">Categoria</p>
-              <p className="text-wave-800 text-sm font-medium">{order.category}</p>
-            </div>
-            <div className="bg-wave-50 rounded-xl p-3">
-              <p className="text-wave-400 text-xs mb-1">Prioridade</p>
-              <p className={`text-sm font-medium ${
-                order.priority === 'high' ? 'text-red-600' :
-                order.priority === 'medium' ? 'text-orange-600' : 'text-blue-600'
-              }`}>
-                {order.priority === 'high' ? 'Urgente' : order.priority === 'medium' ? 'Média' : 'Baixa'}
-              </p>
-            </div>
-            <div className="bg-wave-50 rounded-xl p-3">
-              <p className="text-wave-400 text-xs mb-1">Data de Abertura</p>
-              <p className="text-wave-800 text-sm font-medium">{order.openedDate}</p>
-            </div>
-            <div className="bg-wave-50 rounded-xl p-3">
-              <p className="text-wave-400 text-xs mb-1">Responsável</p>
-              <p className="text-wave-800 text-sm font-medium">{order.assignedTo || 'Aguardando designação'}</p>
-            </div>
-          </div>
-
-          {/* Description */}
-          {order.description && (
-            <div className="bg-wave-50 rounded-xl p-4">
-              <p className="text-wave-400 text-xs mb-1.5">Descrição</p>
-              <p className="text-wave-700 text-sm whitespace-pre-wrap">{order.description}</p>
-            </div>
-          )}
-
-          {/* Status Timeline */}
-          <div>
-            <p className="text-wave-700 text-sm font-medium mb-3">Andamento</p>
-            <div className="space-y-0">
-              {steps.map((step, i) => (
-                <div key={step.key} className="flex items-start gap-3">
-                  <div className="flex flex-col items-center">
-                    <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-                      step.done
-                        ? 'bg-emerald-500 text-white'
-                        : 'bg-wave-200 text-wave-400'
-                    }`}>
-                      {step.done ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-2 h-2 rounded-full bg-wave-300" />}
-                    </div>
-                    {i < steps.length - 1 && (
-                      <div className={`w-0.5 h-8 ${step.done ? 'bg-emerald-300' : 'bg-wave-200'}`} />
-                    )}
-                  </div>
-                  <p className={`text-sm pt-0.5 ${step.done ? 'text-wave-800 font-medium' : 'text-wave-400'}`}>
-                    {step.label}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Info Note */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-            <p className="text-blue-700 text-sm">
-              Atualizações de status são feitas pela administração do condomínio.
-              Você será notificado quando houver mudanças.
-            </p>
-          </div>
-        </div>
-
-        {/* Close */}
-        <div className="p-5 border-t border-wave-100">
-          <button
-            onClick={onClose}
-            className="w-full py-3 bg-wave-100 text-wave-700 rounded-xl hover:bg-wave-200 transition-all"
-          >
-            Fechar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Modal — Criar Solicitação (Morador)
-// ---------------------------------------------------------------------------
-
-function MoradorCreateOSModal({
-  userUnit,
-  onClose,
-  onCreate,
-}: {
-  userUnit: string;
-  onClose: () => void;
-  onCreate: (data: { title: string; category: string; priority: string; description: string }) => void;
-}) {
-  const [formData, setFormData] = useState({
-    title: '',
-    category: 'Outros',
-    priority: 'medium',
-    description: '',
-  });
-
-  const canSubmit = formData.title.trim() && formData.description.trim();
-
-  const handleSubmit = () => {
-    if (!canSubmit) {
-      toast.error('Preencha o título e a descrição.');
-      return;
-    }
-    onCreate(formData);
-  };
-
-  return (
-    <div className="fixed inset-0 bg-blue-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-blue-100">
-        {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-blue-100 p-5 z-10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-wave-400 rounded-xl">
-                <Send className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h2 className="text-blue-900 text-xl">Nova Solicitação</h2>
-                <p className="text-wave-400 text-sm">Unidade {userUnit}</p>
-              </div>
-            </div>
-            <button onClick={onClose} className="p-2 hover:bg-blue-50 rounded-lg transition-colors">
-              <X className="w-5 h-5 text-blue-600" />
-            </button>
-          </div>
-        </div>
-
-        <div className="p-5 space-y-5">
-          {/* Unit — read-only */}
-          <div>
-            <label className="block text-wave-700 text-sm mb-1.5">Unidade</label>
-            <div className="px-4 py-3 bg-wave-50 border border-wave-200 rounded-xl text-wave-500 text-sm">
-              Unidade {userUnit} (preenchida automaticamente)
-            </div>
-          </div>
-
-          {/* Title */}
-          <div>
-            <label className="block text-wave-700 text-sm mb-1.5">
-              O que está precisando de reparo? *
-            </label>
-            <input
-              type="text"
-              value={formData.title}
-              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              placeholder="Ex: Vazamento na torneira da cozinha"
-              className="w-full px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 placeholder-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
-          </div>
-
-          {/* Category & Priority */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-wave-700 text-sm mb-1.5">Tipo do Problema</label>
-              <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                {MORADOR_CATEGORIES.map((cat) => (
-                  <option key={cat} value={cat}>{cat}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-wave-700 text-sm mb-1.5">Urgência</label>
-              <select
-                value={formData.priority}
-                onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                className="w-full px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-              >
-                <option value="low">Pode esperar</option>
-                <option value="medium">Normal</option>
-                <option value="high">Urgente</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-wave-700 text-sm mb-1.5">
-              Descreva o problema *
-            </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Descreva com o máximo de detalhes possível: onde fica, quando começou, o que está acontecendo..."
-              rows={4}
-              className="w-full px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-900 placeholder-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400"
-            />
-          </div>
-
-          {/* Info */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
-            <p className="text-blue-700 text-sm">
-              Sua solicitação será enviada para análise da administração.
-              Você poderá acompanhar o andamento por aqui.
-            </p>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="p-5 border-t border-wave-100 flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 bg-wave-100 text-wave-700 rounded-xl hover:bg-wave-200 transition-all"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-            className={`flex-1 py-3 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 ${
-              canSubmit
-                ? 'bg-gradient-to-r from-brand-deep to-brand-steel text-white hover:opacity-90'
-                : 'bg-wave-200 text-wave-400 cursor-not-allowed shadow-none'
-            }`}
-          >
-            <Send className="w-4 h-4" />
-            Enviar Solicitação
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ===========================================================================
 // MANAGER — Visão completa: Garantias, Conformidade, OS, Gestão
 // ===========================================================================
 
 function ManagerMaintenanceView() {
+  const { userProfile } = useUser();
   const [filter, setFilter] = useState<'all' | 'pending' | 'progress' | 'completed'>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showInspectionModal, setShowInspectionModal] = useState(false);
   const [selectedWarranty, setSelectedWarranty] = useState<any>(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  // SÍN-012: OS selecionada para o modal "Ver Detalhes".
+  const [selectedOrder, setSelectedOrder] = useState<UnifiedMaintenanceOrder | null>(null);
   const [maintenanceRequests, setMaintenanceRequests] = useLocalStorage<any[]>('wave_maintenance_requests', []);
 
   const {
@@ -924,62 +467,11 @@ function ManagerMaintenanceView() {
     setInspectionOrders,
   } = useMaintenanceOrders();
 
-  const warranties = [
-    {
-      id: '1',
-      system: 'Bomba D\'água Principal',
-      type: 'Equipamento',
-      startDate: '15/01/2023',
-      endDate: '15/01/2026',
-      daysRemaining: 28,
-      status: 'warning',
-      supplier: 'Construtora XYZ'
-    },
-    {
-      id: '2',
-      system: 'Impermeabilização Piscina',
-      type: 'Estrutural',
-      startDate: '01/03/2023',
-      endDate: '01/03/2028',
-      daysRemaining: 754,
-      status: 'good',
-      supplier: 'Construtora XYZ'
-    },
-    {
-      id: '3',
-      system: 'Sistema de CFTV',
-      type: 'Eletrônico',
-      startDate: '10/06/2024',
-      endDate: '10/06/2026',
-      daysRemaining: 187,
-      status: 'good',
-      supplier: 'SecurityTech Ltda'
-    }
-  ];
-
-  const compliance = [
-    {
-      name: 'AVCB - Auto de Vistoria do Corpo de Bombeiros',
-      status: 'valid',
-      validUntil: '15/08/2026',
-      daysRemaining: 253,
-      authority: 'Corpo de Bombeiros SP'
-    },
-    {
-      name: 'Seguro Predial Integral',
-      status: 'valid',
-      validUntil: '20/05/2026',
-      daysRemaining: 166,
-      authority: 'Porto Seguro'
-    },
-    {
-      name: 'Laudo Técnico SPDA (Para-raios)',
-      status: 'warning',
-      validUntil: '10/02/2026',
-      daysRemaining: 67,
-      authority: 'Eng. Silva'
-    }
-  ];
+  // Garantias e conformidade vêm da fonte única compartilhada
+  // (buildingMaintenance.ts) — mesma verdade que o Morador consulta na aba
+  // "Prédio", evitando divergência entre as duas visões.
+  const warranties = BUILDING_WARRANTIES;
+  const compliance = BUILDING_COMPLIANCE;
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -1005,12 +497,6 @@ function ManagerMaintenanceView() {
       default:
         return null;
     }
-  };
-
-  const getWarrantyStatus = (daysRemaining: number) => {
-    if (daysRemaining <= 30) return 'critical';
-    if (daysRemaining <= 90) return 'warning';
-    return 'good';
   };
 
   const filteredOrders = allOrders.filter(order => {
@@ -1110,7 +596,7 @@ function ManagerMaintenanceView() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {warranties.map((warranty) => {
-            const statusType = getWarrantyStatus(warranty.daysRemaining);
+            const statusType = getWarrantyHealth(warranty.daysRemaining);
             return (
               <div
                 key={warranty.id}
@@ -1316,7 +802,11 @@ function ManagerMaintenanceView() {
               </div>
 
               <div className="flex gap-3">
-                <button className="flex-1 py-2 bg-wave-100 text-wave-600 rounded-xl hover:bg-wave-200 transition-all">
+                <button
+                  onClick={() => setSelectedOrder(order)}
+                  className="flex-1 py-2 bg-wave-100 text-wave-600 rounded-xl hover:bg-wave-200 transition-all inline-flex items-center justify-center gap-2"
+                >
+                  <Eye className="w-4 h-4" />
                   Ver Detalhes
                 </button>
                 {order.status !== 'completed' && (
@@ -1324,7 +814,15 @@ function ManagerMaintenanceView() {
                     onClick={() => {
                       const nextStatus = order.status === 'pending' ? 'progress' : 'completed';
                       const label = nextStatus === 'progress' ? 'Em Andamento' : 'Concluída';
-                      setMaintenanceOrders((prev) => prev.map((o) => o.id === order.id ? { ...o, status: nextStatus } : o));
+                      // Registra a alteração no histórico da OS (quem/quando/o quê) — SÍN-012.
+                      const entry = {
+                        at: new Date().toISOString(),
+                        action: acaoMudancaStatus(nextStatus),
+                        by: userProfile.name || 'Gestor',
+                      };
+                      setMaintenanceOrders((prev) => prev.map((o) => o.id === order.id
+                        ? { ...o, status: nextStatus, history: [...(o.history ?? []), entry] }
+                        : o));
                       toast.success(`OS ${order.id} atualizada para: ${label}`);
                     }}
                     className="flex-1 py-2 bg-gradient-to-r from-brand-deep to-brand-steel text-white rounded-xl hover:opacity-90 transition-all shadow-lg text-sm"
@@ -1352,6 +850,14 @@ function ManagerMaintenanceView() {
         </div>
       </div>
 
+      {/* Order Detail Modal (SÍN-012) — abre os detalhes da OS selecionada. */}
+      {selectedOrder && (
+        <ManagerOrderDetailModal
+          order={selectedOrder}
+          onClose={() => setSelectedOrder(null)}
+        />
+      )}
+
       {/* Create Maintenance Modal */}
       {showCreateModal && (
         <CreateMaintenanceModal
@@ -1369,6 +875,181 @@ function ManagerMaintenanceView() {
           warranty={selectedWarranty}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modal — Detalhes da Ordem de Serviço (Síndico) — SÍN-012
+//
+// Abre os dados da OS SELECIONADA (recebe o objeto completo, com o id). Mostra
+// descrição, solicitante, unidade, prioridade, status, prestador, custos
+// (previsto/realizado), anexos e o histórico de alterações (o quê/quando/quem).
+// Campos ainda não preenchidos recebem uma indicação adequada, sem esconder os
+// demais dados.
+// ---------------------------------------------------------------------------
+
+const OS_STATUS_META: Record<
+  'pending' | 'progress' | 'completed',
+  { label: string; bg: string; color: string }
+> = {
+  pending: { label: 'Pendente', bg: 'bg-orange-100', color: 'text-orange-700' },
+  progress: { label: 'Em Andamento', bg: 'bg-wave-100', color: 'text-wave-600' },
+  completed: { label: 'Concluída', bg: 'bg-brand-teal/15', color: 'text-brand-teal' },
+};
+
+const OS_PRIORITY_META: Record<'high' | 'medium' | 'low', { label: string; color: string }> = {
+  high: { label: 'Urgente', color: 'text-red-600' },
+  medium: { label: 'Média', color: 'text-orange-600' },
+  low: { label: 'Baixa', color: 'text-blue-600' },
+};
+
+function InfoCell({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="bg-wave-50 rounded-xl p-3">
+      <p className="text-wave-400 text-xs mb-1">{label}</p>
+      <p className={`text-sm font-medium ${valueClass ?? 'text-wave-800'}`}>{value}</p>
+    </div>
+  );
+}
+
+function ManagerOrderDetailModal({
+  order,
+  onClose,
+}: {
+  order: UnifiedMaintenanceOrder;
+  onClose: () => void;
+}) {
+  const statusMeta = OS_STATUS_META[order.status] ?? OS_STATUS_META.pending;
+  const priorityMeta = OS_PRIORITY_META[order.priority] ?? OS_PRIORITY_META.low;
+
+  // Histórico: usa o registrado; se vazio, deriva o evento de abertura para não
+  // deixar a seção em branco (indicação adequada).
+  const historico =
+    order.history && order.history.length > 0
+      ? order.history
+      : [{ at: order.openedDate, action: 'Ordem de serviço aberta', by: order.createdByName ?? '—' }];
+
+  const anexos = order.attachments && order.attachments.length > 0
+    ? order.attachments
+    : order.hasDocument
+      ? ['Documento anexado']
+      : [];
+
+  return (
+    <div className="fixed inset-0 bg-blue-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-blue-100">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-blue-100 p-5 z-10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-gradient-to-br from-brand-deep to-brand-steel rounded-xl">
+                <Eye className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h2 className="text-blue-900 text-xl">Detalhes da Ordem de Serviço</h2>
+                <p className="text-wave-400 text-sm">{order.id}</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-2 hover:bg-blue-50 rounded-lg transition-colors" aria-label="Fechar">
+              <X className="w-5 h-5 text-blue-600" />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Título + status */}
+          <div>
+            <div className="flex items-center gap-2 flex-wrap mb-2">
+              <h3 className="text-wave-800 text-lg">{order.title}</h3>
+              {order.isInspection && (
+                <span className="px-2.5 py-0.5 bg-gradient-to-r from-brand-deep to-brand-steel text-white rounded-full text-xs flex items-center gap-1">
+                  <Shield className="w-3 h-3" /> Vistoria
+                </span>
+              )}
+              {order.origin === 'morador' && (
+                <span className="px-2.5 py-0.5 bg-purple-100 text-purple-700 rounded-full text-xs">
+                  Solicitação do Morador
+                </span>
+              )}
+            </div>
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm ${statusMeta.bg} ${statusMeta.color}`}>
+              <CircleDot className="w-4 h-4" />
+              {statusMeta.label}
+            </span>
+          </div>
+
+          {/* Grade de informações */}
+          <div className="grid grid-cols-2 gap-3">
+            <InfoCell label="Categoria" value={order.category || 'Não informado'} />
+            <InfoCell label="Prioridade" value={priorityMeta.label} valueClass={priorityMeta.color} />
+            <InfoCell label="Solicitante" value={order.createdByName || 'Não informado'} />
+            <InfoCell label="Unidade" value={order.unit ? `Unidade ${order.unit}` : 'Não aplicável'} />
+            <InfoCell label="Data de abertura" value={order.openedDate || 'Não informado'} />
+            <InfoCell label="Prestador designado" value={order.assignedTo || 'Aguardando designação'} />
+            <InfoCell label="Custo previsto" value={formatCustoBRL(order.costEstimated)} />
+            <InfoCell label="Custo realizado" value={formatCustoBRL(order.costActual)} />
+          </div>
+
+          {/* Descrição */}
+          <div className="bg-wave-50 rounded-xl p-4">
+            <p className="text-wave-400 text-xs mb-1.5">Descrição</p>
+            <p className="text-wave-700 text-sm whitespace-pre-wrap">
+              {order.description || 'Sem descrição informada.'}
+            </p>
+          </div>
+
+          {/* Anexos */}
+          <div>
+            <p className="text-wave-700 text-sm font-medium mb-2">Anexos</p>
+            {anexos.length === 0 ? (
+              <p className="text-wave-400 text-sm">Nenhum anexo relacionado.</p>
+            ) : (
+              <ul className="space-y-2">
+                {anexos.map((nome, i) => (
+                  <li key={i} className="flex items-center gap-2 bg-wave-50 rounded-xl p-3">
+                    <FileText className="w-4 h-4 text-wave-500 shrink-0" />
+                    <span className="text-wave-700 text-sm truncate">{nome}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Histórico de alterações */}
+          <div>
+            <p className="text-wave-700 text-sm font-medium mb-3">Histórico de alterações</p>
+            <ol className="space-y-0">
+              {historico.map((h, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <div className="flex flex-col items-center">
+                    <div className="w-6 h-6 rounded-full bg-wave-100 flex items-center justify-center shrink-0">
+                      <Clock className="w-3.5 h-3.5 text-wave-500" />
+                    </div>
+                    {i < historico.length - 1 && <div className="w-0.5 h-8 bg-wave-200" />}
+                  </div>
+                  <div className="pt-0.5 pb-3">
+                    <p className="text-wave-800 text-sm">{h.action}</p>
+                    <p className="text-wave-400 text-xs mt-0.5">
+                      {formatDataHora(h.at)} · {h.by}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+
+        {/* Rodapé */}
+        <div className="p-5 border-t border-wave-100">
+          <button
+            onClick={onClose}
+            className="w-full py-3 bg-wave-100 text-wave-700 rounded-xl hover:bg-wave-200 transition-all"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

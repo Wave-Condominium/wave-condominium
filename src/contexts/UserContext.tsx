@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { createContext, useContext, ReactNode } from 'react';
-import { useAuth, User } from '@/hooks/useAuth';
+import { useAuth, User, AppRole } from '@/hooks/useAuth';
 
 // Mantendo compatibilidade com interfaces existentes onde possível
 export interface UserProfile extends User {
@@ -11,8 +11,11 @@ export interface UserProfile extends User {
 interface UserContextType {
   userProfile: UserProfile;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<{ error: any }>;
+  login: (email: string, password: string) => Promise<{ error: any; needsProfileChoice?: boolean }>;
   logout: () => Promise<void>;
+  // SÍN-003: escolher/alternar o perfil ativo (login dual e "Trocar de perfil").
+  setActiveProfile: (role: AppRole) => Promise<{ error: any }>;
+  needsProfileChoice: boolean;
   isLoading: boolean;
 }
 
@@ -21,6 +24,7 @@ const defaultProfile: UserProfile = {
   name: '',
   unit: '',
   role: 'Morador', // Default válido
+  availableRoles: ['Morador'],
   email: '',
   avatar: '',
   walletAddress: ''
@@ -29,7 +33,7 @@ const defaultProfile: UserProfile = {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export function UserProvider({ children }: { children: ReactNode }) {
-  const { user, login, logout, loading } = useAuth();
+  const { user, login, logout, loading, setActiveProfile, needsProfileChoice } = useAuth();
 
   // FIX: antes este campo era sempre sobrescrito com as iniciais do nome
   // (`avatar: getInitials(user.name)`), mas nada no app consumia essa string
@@ -42,12 +46,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
   } : defaultProfile;
 
   return (
-    <UserContext.Provider value={{ 
-      userProfile, 
-      isAuthenticated: !!user, 
-      login, 
+    <UserContext.Provider value={{
+      userProfile,
+      isAuthenticated: !!user,
+      login,
       logout,
-      isLoading: loading 
+      setActiveProfile,
+      needsProfileChoice,
+      isLoading: loading
     }}>
       {children}
     </UserContext.Provider>

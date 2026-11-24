@@ -1,0 +1,30 @@
+# Shares the harness with humans and with agents whose tool has no inline
+# hooks: pre-commit runs the same scanners as scripts/ for anyone who commits
+# (the commit-time guaranteed floor — see README "Portable by design").
+# Install with: pipx install pre-commit && pre-commit install
+# Update pinned revs periodically with: pre-commit autoupdate
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.3
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/semgrep/pre-commit
+    # Mesma versão do semgrep instalado localmente (usado pelo hook de edição
+    # do Claude Code, scripts/check-security.sh), para os dois darem o mesmo
+    # veredito. O rev v1.117.0 que vem no template do GAIDE não funciona em
+    # Python >= 3.13: quebra no protobuf (3.14) e em pkg_resources (3.13).
+    rev: v1.176.0
+    hooks:
+      - id: semgrep
+        args:
+          [
+            scan,
+            --config,
+            p/security-audit,
+            --config,
+            p/secrets,
+            --error,
+            --metrics=off,
+            --quiet,
+          ]

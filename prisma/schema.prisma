@@ -34,36 +34,215 @@ model Administradora {
   users        User[]
 }
 
+// SÍN-030: onboarding do condomínio + vínculo com o PSP.
+enum TipoContaBancaria {
+  CORRENTE
+  POUPANCA
+}
+
+enum RelacaoResponsavel {
+  SINDICO
+  ADMINISTRADORA
+  PROCURADOR
+}
+
+// Máquina de estados do vínculo com o PSP (subconta + KYP/KYC do PAG-002). O
+// condomínio só é apto a operações financeiras quando APTO.
+enum StatusOnboardingPsp {
+  NAO_INICIADO
+  SUBCONTA_CRIANDO
+  KYC_PENDENTE
+  EM_ANALISE
+  APTO
+  RECUSADO
+}
+
 model Condominium {
   id               String          @id @default(cuid())
   name             String
+  // SÍN-031: 1 condomínio = 1 CNPJ. Identificação fiscal única na plataforma.
+  cnpj             String?         @unique
   administradoraId String?
   administradora   Administradora? @relation(fields: [administradoraId], references: [id])
   createdAt        DateTime        @default(now())
 
-  users     User[]
-  avisos    Aviso[]
-  reservas  Reserva[]
-  bloqueios Bloqueio[]
-  boletos   Boleto[]
-  propostas Proposta[]
+  // SÍN-031 (isolamento financeiro): subconta independente do condomínio no PSP.
+  // Aqui modelamos o VÍNCULO (id externo da subconta); a integração real com o
+  // PSP fica para um card próprio. Receitas/despesas/boletos operam sempre no
+  // contexto do condomínio, então herdam esta subconta.
+  pspSubcontaId String? @unique
+
+  // SÍN-030 (onboarding): dados cadastrais (endereço), bancários e do responsável,
+  // consentimento de representação e o STATUS do vínculo com o PSP.
+  cep         String?
+  logradouro  String?
+  numero      String?
+  complemento String?
+  bairro      String?
+  cidade      String?
+  uf          String?
+
+  bancoNome      String?
+  bancoAgencia   String?
+  bancoConta     String?
+  bancoTipoConta TipoContaBancaria?
+  pixChave       String?
+
+  responsavelNome     String?
+  responsavelEmail    String?
+  responsavelTelefone String?
+  responsavelRelacao  RelacaoResponsavel?
+
+  // Evidência de representação (arts. 1.347–1.349 CC): declaração + carimbo de tempo.
+  consentimentoRepresentacao Boolean   @default(false)
+  consentimentoEm            DateTime?
+
+  // Estado do onboarding no PSP (KYC/subconta). Gate das operações financeiras.
+  pspStatus       StatusOnboardingPsp @default(NAO_INICIADO)
+  pspAtualizadoEm DateTime?
+  pspMotivoRecusa String?
+
+  // SÍN-026 (financeiro): alçada de aprovação. Despesas com valor ACIMA deste
+  // teto exigem aprovação do síndico na Central. null = sem alçada (toda
+  // despesa segue direto para PENDENTE — comportamento anterior preservado).
+  alcadaAprovacao Decimal? @db.Decimal(12, 2)
+
+  users        User[]
+  memberships  CondominiumMembership[]
+  avisos       Aviso[]
+  reservas     Reserva[]
+  bloqueios    Bloqueio[]
+  boletos      Boleto[]
+  propostas    Proposta[]
+  despesas     Despesa[]
+  unidades     Unidade[]
+  convites     ConviteAcesso[]
+  reunioes     Reuniao[]
+  fundoConexao FundoReservaConexao?
+  fundoSnapshots FundoReservaSnapshot[]
+  receitas     Receita[]
+  eventosSeguranca EventoSeguranca[]
+  alertasSeguranca AlertaSeguranca[]
 
   @@index([administradoraId])
+}
+
+// MOR-057: Receita da cota condominial. Nasce EXCLUSIVAMENTE da confirmação de
+// pagamento pelo PSP/Gateway (webhook) → baixa automática → contabilização.
+// Open Finance NÃO é fonte (só reconciliação, MOR-023).
+enum StatusContabilizacao {
+  CONTABILIZADA
+  PENDENTE_CONCILIACAO
+  DIVERGENTE
+}
+
+enum OrigemReceita {
+  PSP_WEBHOOK
+}
+
+model Receita {
+  id            String      @id @default(cuid())
+  condominiumId String
+  condominium   Condominium @relation(fields: [condominiumId], references: [id], onDelete: Cascade)
+
+  // Uma receita por boleto (idempotência da baixa). Boleto é a cota condominial.
+  boletoId String? @unique
+  boleto   Boleto? @relation(fields: [boletoId], references: [id], onDelete: SetNull)
+
+  unitNumber     String
+  unitOwner      String
+  referenceMonth String // 'YYYY-MM' — a cota
+  valor          Decimal @db.Decimal(10, 2)
+  dataPagamento  DateTime // confirmação do pagamento pelo PSP
+
+  status StatusContabilizacao @default(CONTABILIZADA)
+  origem OrigemReceita        @default(PSP_WEBHOOK)
+  // Rastreabilidade da origem (id da transação no PSP).
+  pspReferencia String?
+  // Divergência detectada na conciliação (valor pago x boleto), quando houver.
+  divergenciaMotivo String?
+
+  contabilizadaEm DateTime @default(now())
+
+  @@index([condominiumId, unitNumber])
+  @@index([condominiumId, referenceMonth])
+}
+
+// MOR-023: Fundo de Reserva via Open Finance (SOMENTE LEITURA).
+enum StatusConexaoOF {
+  DESCONECTADO
+  CONECTANDO
+  CONECTADO
+  EXPIRADO
+  REVOGADO
+  ERRO
+}
+
+// Conexão + consentimento de Open Finance do condomínio. Uma por condomínio. A
+// autorização é do Síndico (representação, arts. 1.347–1.349 CC). Guardamos só o
+// necessário (LGPD): instituição, item externo do agregador e dados do consent.
+model FundoReservaConexao {
+  id            String      @id @default(cuid())
+  condominiumId String      @unique
+  condominium   Condominium @relation(fields: [condominiumId], references: [id], onDelete: Cascade)
+
+  status     StatusConexaoOF @default(DESCONECTADO)
+  agregador  String          @default("SIMULADO") // Belvo/Pluggy/... no futuro
+  instituicao String?
+  // Id da conexão no agregador (não são credenciais — apenas referência).
+  externalItemId String?
+
+  consentimentoPor      String? // userId do síndico que autorizou
+  consentimentoPorNome  String?
+  consentimentoEm       DateTime?
+  consentimentoExpiraEm DateTime?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+}
+
+// Snapshot verificável de uma consulta ao Fundo de Reserva. Só agregados (saldo/
+// investido) — nunca transações individuais (LGPD: coleta mínima). O hash é
+// ancorado na Stellar (registro verificável), como no módulo Auditoria.
+model FundoReservaSnapshot {
+  id            String      @id @default(cuid())
+  condominiumId String
+  condominium   Condominium @relation(fields: [condominiumId], references: [id], onDelete: Cascade)
+
+  saldoDisponivel Decimal @db.Decimal(14, 2)
+  valorInvestido  Decimal @db.Decimal(14, 2)
+  moeda           String  @default("BRL")
+  origem          String // ex.: "Open Finance · Banco X"
+  consultadoEm    DateTime
+
+  hash                String
+  blockchainTxHash    String?
+  stellarExplorerUrl  String?
+
+  criadoEm DateTime @default(now())
+
+  @@index([condominiumId, consultadoEm])
 }
 
 enum Role {
   ADMIN // Admin de plataforma (Wave)
   ADMINISTRADORA // Empresa que gere multiplos condominios
   SINDICO
+  CONSELHO // SÍN-031: conselho — leitura + participacao, sem acoes de gestao
   MORADOR
 }
 
 model User {
   id           String @id @default(cuid())
-  email        String
+  // SÍN-031: e-mail é identidade GLOBAL única (uma pessoa = uma conta). O acesso
+  // a cada condomínio e o papel nele vêm de CondominiumMembership, não do e-mail.
+  email        String @unique
   passwordHash String
   name         String
   role         Role   @default(MORADOR)
+  // Papel adicional opcional — ex.: um Síndico que também é Morador (SÍN-003).
+  // Permite ao usuário escolher/alternar o perfil ativo da sessão.
+  secondaryRole Role?
   unit         String?
   photoUrl     String?
 
@@ -71,20 +250,47 @@ model User {
   // antes de acessar qualquer funcionalidade da plataforma.
   mustChangePassword Boolean @default(false)
 
-  // Vinculo com condominio (sindico/morador) OU administradora.
+  // SÍN-022: acesso revogado pelo síndico. Quando true, o login é bloqueado e
+  // as sessões deixam de ser válidas (verificado no login/guard/getCurrentUser).
+  acessoRevogado Boolean @default(false)
+
+  // SÍN-031: `condominiumId`/`role` acima permanecem como o condomínio/papel
+  // PADRÃO (home) do usuário — usados como semente do backfill e fallback de
+  // sessão. A AUTORIDADE de acesso e papel por condomínio é `memberships`.
   condominiumId String?
   condominium   Condominium? @relation(fields: [condominiumId], references: [id])
 
   administradoraId String?
   administradora   Administradora? @relation(fields: [administradoraId], references: [id])
 
-  sessions  Session[]
-  votos     Voto[]
-  createdAt DateTime  @default(now())
+  memberships CondominiumMembership[]
+  sessions    Session[]
+  votos       Voto[]
+  eventosSeguranca EventoSeguranca[]
+  alertasSeguranca         AlertaSeguranca[] @relation("AlertasSegurancaUsuario")
+  alertasSegurancaResolvidos AlertaSeguranca[] @relation("AlertasSegurancaResolvidoPor")
+  createdAt   DateTime @default(now())
 
-  @@unique([condominiumId, email])
   @@index([condominiumId])
   @@index([administradoraId])
+}
+
+// SÍN-031: vínculo N:N usuário↔condomínio com PAPEL POR CONDOMÍNIO. Fonte de
+// verdade do acesso multi-condomínio: um mesmo usuário pode ser SINDICO em um
+// condomínio e CONSELHO em outro. Toda decisão de acesso valida este vínculo no
+// servidor (nunca confia no condomínio "ativo" escolhido pela interface).
+model CondominiumMembership {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  condominiumId String
+  condominium   Condominium @relation(fields: [condominiumId], references: [id], onDelete: Cascade)
+  role          Role
+  createdAt     DateTime    @default(now())
+
+  @@unique([userId, condominiumId])
+  @@index([condominiumId])
+  @@index([userId])
 }
 
 model Session {
@@ -251,8 +457,21 @@ model Boleto {
   blockchainRegisteredAt DateTime?
   stellarExplorerUrl     String?
 
+  // MOR-057: referência da confirmação do PSP que originou a baixa (rastreabilidade).
+  pspReferencia String?
+  receita       Receita?
+
   issuedBy  String
   issuedAt  DateTime @default(now())
+
+  // Gestão de cobrança pelo síndico (SÍN-009). O síndico NÃO paga boletos de
+  // terceiros — apenas acompanha e faz cobrança. Registro leve, sem tabela nova.
+  lastReminderAt        DateTime? // último lembrete de cobrança enviado ao morador
+  acordoParcelas        Int?      // nº de parcelas do acordo de parcelamento
+  acordoPrimeiraParcela String?   // 'YYYY-MM-DD' — vencimento da 1ª parcela
+  acordoObservacao      String?
+  acordoRegistradoEm    DateTime?
+  acordoRegistradoPor   String?   // nome do gestor que registrou o acordo
 
   @@index([condominiumId, unitNumber])
   @@index([condominiumId, status])
@@ -303,6 +522,14 @@ model Proposta {
   encerradaEm  DateTime?
   aprovadaEm   DateTime?
 
+  // Rejeição pelo síndico (SÍN-005). A proposta NUNCA é excluída fisicamente:
+  // ao rejeitar, guarda-se o motivo, o responsável e o momento da decisão,
+  // preservando a rastreabilidade completa da Governança no histórico.
+  motivoRejeicao String?
+  rejeitadaPor   String? // nome do responsável pela decisão (auditoria)
+  rejeitadaPorId String? // userId do responsável (auditoria)
+  rejeitadaEm    DateTime?
+
   votos Voto[]
 
   @@index([condominiumId, status])
@@ -329,6 +556,10 @@ enum StatusOcorrencia {
   EM_ANDAMENTO
   CONCLUIDA
   CANCELADA
+  // SÍN-026 (manutenção): solicitação do morador aguardando decisão do síndico,
+  // e recusada (com motivo) — entram na Central de Aprovações.
+  AGUARDANDO_APROVACAO
+  RECUSADA
 }
 
 model DocumentoUnidade {
@@ -353,7 +584,17 @@ model SolicitacaoServico {
   aberturaEm    DateTime         @default(now())
   atualizadoEm  DateTime         @updatedAt
 
+  // SÍN-026 (manutenção): dados da solicitação do morador + decisão do síndico.
+  titulo       String?
+  prioridade   String? // 'high' | 'medium' | 'low'
+  solicitanteId String?
+  solicitante   String? // nome do solicitante (exibição/auditoria)
+  motivoRecusa  String?
+  decididoPor   String?
+  decididoEm    DateTime?
+
   @@index([condominiumId, unidade])
+  @@index([condominiumId, status])
 }
 
 model ManutencaoUnidade {
@@ -367,4 +608,385 @@ model ManutencaoUnidade {
   responsavel   String
 
   @@index([condominiumId, unidade])
+}
+
+// --- Tesouraria: Despesas / pagamentos (SÍN-011) -----------------------------
+//
+// Registro de despesas e pagamentos do condomínio, com rastreabilidade e
+// integridade do comprovante. Escopado por condominiumId (multi-tenant).
+//
+// Status: persistimos apenas PENDENTE/PAGO. "Vencido" é DERIVADO no aplicativo
+// (status PENDENTE + dataVencimento < hoje), no mesmo padrão de `isBoletoOverdue`
+// — evita um estado armazenado que precisa ser "corrigido" a cada virada de dia.
+//
+// Integridade: ao anexar um comprovante, calculamos o SHA-256 dos BYTES do
+// arquivo (`comprovanteHash`) e ancoramos esse hash na Stellar (mesmo padrão de
+// Boletos), guardando `blockchainTxHash` + `stellarExplorerUrl`. A verificação
+// recalcula o hash do arquivo atual e o compara com o hash ancorado no ledger.
+
+enum CategoriaDespesa {
+  FOLHA_PAGAMENTO // Folha de pagamento e encargos
+  JARDINAGEM // Jardinagem e paisagismo
+  LIMPEZA // Limpeza e conservação
+  MANUTENCAO_PREDIAL // Manutenção predial
+  ELEVADORES // Elevadores
+  SEGURANCA_PORTARIA // Segurança e portaria
+  AGUA_ESGOTO // Água e esgoto
+  ENERGIA // Energia elétrica
+  GAS // Gás
+  SEGUROS // Seguros
+  TAXAS_TRIBUTOS // Taxas e tributos
+  ADMINISTRACAO // Administração
+  OBRAS_BENFEITORIAS // Obras e benfeitorias
+  OUTROS // Outros
+}
+
+enum StatusDespesa {
+  PENDENTE
+  PAGO
+  // SÍN-026 (financeiro): despesa acima da alçada aguardando decisão do síndico.
+  AGUARDANDO_APROVACAO
+  // Reprovada pelo síndico na Central (rastreabilidade; não é excluída).
+  REPROVADA
+}
+
+enum FormaPagamentoDespesa {
+  PIX
+  TED
+  TRANSFERENCIA
+  DINHEIRO
+  BOLETO
+  CARTAO
+  DEBITO_AUTOMATICO
+  OUTRO
+}
+
+enum OrigemRecursoDespesa {
+  SALDO
+  FUNDO_RESERVA
+}
+
+model Despesa {
+  id            String      @id @default(cuid())
+  condominiumId String
+  condominium   Condominium @relation(fields: [condominiumId], references: [id], onDelete: Cascade)
+
+  categoria      CategoriaDespesa
+  descricao      String
+  fornecedor     String? // fornecedor ou beneficiário
+  valor          Decimal          @db.Decimal(12, 2)
+  dataVencimento String // 'YYYY-MM-DD'
+  dataPagamento  String? // 'YYYY-MM-DD' — vazio enquanto pendente
+  formaPagamento FormaPagamentoDespesa?
+  origemRecurso  OrigemRecursoDespesa  @default(SALDO)
+  status         StatusDespesa         @default(PENDENTE)
+
+  // Comprovante + registro de integridade (ancorado na Stellar).
+  comprovanteNome        String?
+  comprovanteUrl         String? // URL do Vercel Blob
+  comprovanteMime        String?
+  comprovanteTamanho     Int? // bytes
+  comprovanteHash        String? // SHA-256 hex (64 chars) dos bytes do arquivo
+  blockchainTxHash       String? // hash da transação Stellar que ancora o comprovante
+  blockchainRegisteredAt DateTime?
+  stellarExplorerUrl     String?
+
+  registradoPor String // nome do gestor que registrou (auditoria)
+
+  // SÍN-026 (financeiro): rastreabilidade da decisão sobre a alçada.
+  aprovadaPor      String?
+  aprovadaEm       DateTime?
+  reprovadaPor     String?
+  reprovadaEm      DateTime?
+  motivoReprovacao String?
+
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@index([condominiumId, status])
+  @@index([condominiumId, categoria])
+}
+
+// --- Unidades (SÍN-021) ------------------------------------------------------
+//
+// Cadastro estrutural e de ocupação das unidades do condomínio. Escopado por
+// condominiumId (multi-tenant). A trilha de auditoria das alterações é
+// registrada no módulo Auditoria (client-side + âncora Stellar), fora daqui.
+//
+// Unicidade: (condominiumId, bloco, numero). `bloco` usa "" (vazio) para "sem
+// bloco" — evita o comportamento de NULLs distintos do Postgres e garante a
+// deduplicação exigida pela importação em massa.
+
+enum TipoUnidade {
+  APARTAMENTO
+  SALA
+  LOJA
+  COBERTURA
+  VAGA_AUTONOMA
+}
+
+enum StatusUnidade {
+  OCUPADA
+  VAGA
+  EM_OBRA
+}
+
+model Unidade {
+  id            String      @id @default(cuid())
+  condominiumId String
+  condominium   Condominium @relation(fields: [condominiumId], references: [id], onDelete: Cascade)
+
+  // Identificação
+  bloco  String @default("") // bloco ou torre ("" = sem bloco)
+  andar  String @default("") // andar (texto: "Térreo", "1", "12"...)
+  numero String // número da unidade
+
+  // Características
+  tipo          TipoUnidade   @default(APARTAMENTO)
+  fracaoIdeal   Decimal?      @db.Decimal(9, 6) // fração ideal (ex.: 0.012345)
+  areaPrivativa Decimal?      @db.Decimal(10, 2) // m²
+  vagas         Int           @default(0)
+  status        StatusUnidade @default(VAGA)
+
+  // Vínculos (nome + contato). A unidade pode ter proprietário mesmo vaga.
+  proprietarioNome     String?
+  proprietarioEmail    String?
+  proprietarioTelefone String?
+  inquilinoNome        String?
+  inquilinoEmail       String?
+  inquilinoTelefone    String?
+
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  convites ConviteAcesso[]
+
+  @@unique([condominiumId, bloco, numero])
+  @@index([condominiumId, status])
+}
+
+// --- Acessos de moradores (SÍN-022) ------------------------------------------
+//
+// Convite de acesso gerado pelo Síndico a partir de uma unidade. O morador
+// define a própria senha na ativação — o Síndico NUNCA vê/define a senha.
+//
+// Segurança: guardamos apenas o SHA-256 do token de ativação (`tokenHash`),
+// nunca o token em claro. O link tem expiração (`expiresAt`) e uso único
+// (após ativar, `status = ATIVADO` e `usadoEm` preenchido). Revogar bloqueia o
+// acesso do usuário (User.acessoRevogado) e invalida o convite.
+//
+// "EXPIRADO" é DERIVADO (PENDENTE + expiresAt < agora), não armazenado.
+
+enum VinculoMorador {
+  PROPRIETARIO
+  INQUILINO
+  DEPENDENTE
+}
+
+enum StatusConvite {
+  PENDENTE
+  ATIVADO
+  REVOGADO
+}
+
+model ConviteAcesso {
+  id            String      @id @default(cuid())
+  condominiumId String
+  condominium   Condominium @relation(fields: [condominiumId], references: [id], onDelete: Cascade)
+
+  // Unidade de origem (SÍN-021). Guardamos também o rótulo p/ rastreabilidade
+  // mesmo que a unidade seja removida.
+  unidadeId     String?
+  unidade       Unidade? @relation(fields: [unidadeId], references: [id], onDelete: SetNull)
+  unidadeRotulo String
+
+  nome     String
+  email    String
+  telefone String?
+  vinculo  VinculoMorador
+
+  tokenHash String        @unique // SHA-256 hex do token de ativação
+  status    StatusConvite @default(PENDENTE)
+  expiresAt DateTime
+
+  usuarioId  String? // User criado/ativado por este convite
+  usadoEm    DateTime?
+  revogadoEm DateTime?
+  revogadoPor String?
+
+  criadoPor    String // nome do gestor que gerou o convite (auditoria)
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  @@index([condominiumId, status])
+  @@index([condominiumId, unidadeId])
+  @@index([email])
+}
+
+// --- Reuniões & Atas (SÍN-026, migração p/ banco) ----------------------------
+//
+// Migração do módulo de Reuniões (antes em localStorage) para o Postgres.
+// Escopado por condominiumId (multi-tenant). A ata é o registro oficial da
+// reunião, com um código de integridade (MOR-033). Presenças são confirmadas
+// pelos moradores com a identidade da sessão (MOR-032), uma por usuário/reunião.
+
+enum StatusReuniao {
+  RASCUNHO
+  AGENDADA
+  EM_ANDAMENTO
+  CONCLUIDA
+}
+
+// SÍN-026 (reuniões, Etapa B): ciclo de aprovação da ata. A ata é redigida como
+// rascunho, enviada para aprovação e só vira OFICIAL quando o síndico aprova na
+// Central (rejeitar volta a RASCUNHO, com motivo). null = ainda sem ata.
+enum StatusAta {
+  RASCUNHO
+  AGUARDANDO_APROVACAO
+  OFICIAL
+}
+
+model Reuniao {
+  id            String      @id @default(cuid())
+  condominiumId String
+  condominium   Condominium @relation(fields: [condominiumId], references: [id], onDelete: Cascade)
+
+  titulo    String
+  descricao String
+  data      String // 'YYYY-MM-DD'
+  horario   String // 'HH:mm'
+  duracao   Int           @default(120) // minutos
+  meetLink  String        @default("")
+  status    StatusReuniao @default(AGENDADA)
+  maxParticipantes Int    @default(100)
+  pauta     String[] // itens da pauta
+
+  // Ata (registro oficial) + integridade (MOR-033). Ancoragem Stellar fica p/ depois.
+  ataContent   String?
+  ataHash      String?
+  recordingUrl String?
+
+  // Ciclo de aprovação da ata (Etapa B). Rastreabilidade da decisão do síndico.
+  ataStatus         StatusAta?
+  ataAprovadaPor    String?
+  ataAprovadaEm     DateTime?
+  ataMotivoRejeicao String?
+
+  criadoPor    String
+  criadoEm     DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  confirmacoes ConfirmacaoPresenca[]
+
+  @@index([condominiumId, status])
+  @@index([condominiumId, data])
+}
+
+model ConfirmacaoPresenca {
+  id            String   @id @default(cuid())
+  reuniaoId     String
+  reuniao       Reuniao  @relation(fields: [reuniaoId], references: [id], onDelete: Cascade)
+  condominiumId String
+  userId        String // identidade da sessão (MOR-032)
+  nome          String
+  unidade       String   @default("")
+  confirmadoEm  DateTime @default(now())
+
+  // Uma confirmação por usuário em cada reunião.
+  @@unique([reuniaoId, userId])
+  @@index([reuniaoId])
+}
+
+// --- SEG-016: Eventos de segurança -----------------------------------------
+//
+// Trilha SEPARADA da auditoria de negócio (BlockchainRegistry/Auditoria, que
+// registra "o que mudou" em Boletos/Manutenção/Unidades/Reuniões/Aprovações).
+// Aqui registramos "quem tentou acessar ou realizar uma ação sensível e em
+// que contexto" — login, falha de login, logout, acesso negado, senha,
+// revogação/restauração de acesso. Nunca grava senha, token ou credencial.
+//
+// Append-only por design: nenhuma action de update/delete é exposta para
+// este model (nem para gestores) — ver docs/SEG-016-EVENTOS-SEGURANCA.md.
+
+enum TipoEventoSeguranca {
+  LOGIN_SUCESSO
+  LOGIN_FALHA
+  LOGOUT
+  ACESSO_NEGADO
+  SENHA_ALTERADA
+  ACESSO_REVOGADO
+  ACESSO_RESTAURADO
+  PERFIL_ALTERADO
+  ASSINATURA_EMISSORA_SUCESSO
+  ASSINATURA_EMISSORA_FALHA
+}
+
+enum ResultadoEventoSeguranca {
+  SUCESSO
+  FALHA
+}
+
+model EventoSeguranca {
+  id        String                   @id @default(cuid())
+  tipo      TipoEventoSeguranca
+  resultado ResultadoEventoSeguranca
+  timestamp DateTime                 @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Snapshot do e-mail no momento do evento — sobrevive à exclusão do
+  // usuário e cobre falha de login com e-mail inexistente (userId nulo).
+  email  String?
+
+  condominiumId String?
+  condominium   Condominium? @relation(fields: [condominiumId], references: [id], onDelete: SetNull)
+
+  ip        String?
+  userAgent String?
+  recurso   String? // ex.: "auth.login", "auth.acessoNegado:requireManager"
+  metadata  Json? // detalhes técnicos extras — NUNCA senha/token/credencial
+
+  @@index([tipo, timestamp])
+  @@index([userId])
+  @@index([condominiumId, timestamp])
+}
+
+// --- SEG-016 Fase 2: Detecção de anomalias e alertas -----------------------
+//
+// Regras determinísticas e configuráveis (sem IA/ML nesta fase, conforme o
+// card pede) sobre os eventos já registrados (LOGIN_FALHA/ACESSO_NEGADO).
+// AlertaSeguranca é separado de EventoSeguranca: o evento é o fato bruto; o
+// alerta é a CONCLUSÃO de uma regra sobre um conjunto de eventos.
+
+enum TipoAlertaSeguranca {
+  MULTIPLAS_FALHAS_LOGIN_MESMA_CONTA
+  MULTIPLOS_LOGINS_MESMO_IP
+  MUITOS_ACESSOS_NEGADOS
+}
+
+model AlertaSeguranca {
+  id        String              @id @default(cuid())
+  tipo      TipoAlertaSeguranca
+  descricao String
+  contagem  Int
+  createdAt DateTime            @default(now())
+
+  userId String?
+  user   User?   @relation("AlertasSegurancaUsuario", fields: [userId], references: [id], onDelete: SetNull)
+  email  String?
+
+  condominiumId String?
+  condominium   Condominium? @relation(fields: [condominiumId], references: [id], onDelete: SetNull)
+
+  ip String?
+
+  // Resolução: quem viu/tratou o alerta. NUNCA excluído (histórico) — só
+  // marcado como resolvido, some do contador/badge mas continua na lista.
+  resolvidoEm     DateTime?
+  resolvidoPorId  String?
+  resolvidoPor    User?     @relation("AlertasSegurancaResolvidoPor", fields: [resolvidoPorId], references: [id], onDelete: SetNull)
+
+  @@index([tipo, createdAt])
+  @@index([condominiumId, resolvidoEm])
+  @@index([email])
 }

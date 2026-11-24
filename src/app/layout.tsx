@@ -32,7 +32,7 @@ const plexMono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: "Wave · Gestão Condominial Inteligente",
-  description: "Plataforma de gestão condominial com transparência e governança auditável na rede Stellar",
+  description: "Plataforma de gestão condominial com transparência e governança auditável",
 };
 
 export default function RootLayout({
@@ -41,7 +41,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" className={`${playfair.variable} ${inter.variable} ${montserrat.variable} ${plexMono.variable}`}>
+    <html lang="pt-BR" suppressHydrationWarning className={`${playfair.variable} ${inter.variable} ${montserrat.variable} ${plexMono.variable}`}>
       <body className={inter.className}>
         <Providers>{children}</Providers>
       </body>

@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # Dependências npm da aplicação (Next.js, React, Prisma, Stellar SDK etc.)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "seg-013"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Agrupa patch/minor num único PR para reduzir volume de revisão.
+      # Updates major NÃO entram neste grupo — chegam um a um, em PR próprio,
+      # para revisão isolada (são os que mais podem quebrar compatibilidade,
+      # ex.: Next.js, Prisma, @stellar/stellar-sdk).
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Actions usadas no próprio pipeline de CI/CD
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(ci)"

@@ -49,3 +49,13 @@ export function isPlatformAdmin(role: Role | undefined | null): boolean {
 export function isAdministradora(role: Role | undefined | null): boolean {
   return role === 'Administradora';
 }
+
+/**
+ * Conselho (SÍN-031): papel de leitura + participação num condomínio, SEM ações
+ * de gestão. NÃO é `isManager` — não emite boletos, não cria reuniões, não
+ * aprova na Central. Fica abaixo de Síndico. O papel é POR condomínio (o mesmo
+ * usuário pode ser Síndico em um e Conselho em outro), resolvido no login/troca.
+ */
+export function isConselho(role: Role | undefined | null): boolean {
+  return role === 'Conselho';
+}

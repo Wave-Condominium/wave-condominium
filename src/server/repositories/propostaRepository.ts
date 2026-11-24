@@ -34,8 +34,26 @@ export const propostaRepository = {
     return prisma.proposta.updateMany({ where: { id, condominiumId }, data });
   },
 
-  remove(id: string, condominiumId: string) {
-    return prisma.proposta.deleteMany({ where: { id, condominiumId } });
+  /**
+   * Rejeição pelo síndico (SÍN-005): marca a proposta como REJEITADA e grava a
+   * trilha de auditoria (motivo, responsável, momento). NUNCA exclui o registro.
+   * Os campos de rejeição existem no banco após a migração aditiva.
+   */
+  rejeitar(
+    id: string,
+    condominiumId: string,
+    data: {
+      motivoRejeicao: string;
+      rejeitadaPor: string;
+      rejeitadaPorId: string;
+      rejeitadaEm: Date;
+      encerradaEm: Date;
+    },
+  ) {
+    return prisma.proposta.updateMany({
+      where: { id, condominiumId },
+      data: { status: "REJEITADA", ...data },
+    });
   },
 
   /** Registra um voto (voto unico garantido por @@unique([propostaId, userId])). */

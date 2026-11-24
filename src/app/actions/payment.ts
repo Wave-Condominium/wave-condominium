@@ -13,8 +13,12 @@ export async function pagarBoletoViaStellar(params: {
   // C2: exige sessao valida no servidor (nao basta esconder o botao).
   // Regra fina "morador so paga o proprio boleto" entra quando o boleto
   // vier do banco.
-  await requireSession();
-  return processBoletoPagamento(params);
+  const session = await requireSession();
+  return processBoletoPagamento({
+    ...params,
+    userId: session.userId,
+    condominiumId: session.condominiumId ?? null,
+  });
 }
 
 export async function getSaldoContaOperacional() {

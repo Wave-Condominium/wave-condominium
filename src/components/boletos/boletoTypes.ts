@@ -55,4 +55,11 @@ export interface BoletoFull extends BoletoLike {
   stellarExplorerUrl?: string;
   anchorTxHash?: string;
   contentHash?: string;
+  // Gestão de cobrança pelo síndico (SÍN-009).
+  lastReminderAt?: string;
+  acordoParcelas?: number;
+  acordoPrimeiraParcela?: string;
+  acordoObservacao?: string;
+  acordoRegistradoEm?: string;
+  acordoRegistradoPor?: string;
 }

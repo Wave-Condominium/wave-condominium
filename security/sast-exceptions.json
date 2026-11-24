@@ -1,0 +1,13 @@
+{
+  "_readme": "Exceções ao gate de SEG-021 (scripts/security/sast-gate.mjs). Cada item precisa de 'reason' e 'cardRef' — nunca registrar uma exceção sem card de correção vinculado. 'path' é opcional (omitido = vale para qualquer ocorrência da regra, usar com cautela). 'expiresAt' curto força reavaliação periódica.",
+  "exceptions": [
+    {
+      "checkId": "semgrep.wave-dangerously-set-inner-html-unsanitized",
+      "path": "src/components/ui/chart.tsx",
+      "reason": "Falso-positivo confirmado: componente ChartStyle é código de terceiros (gerado pelo shadcn/ui), injeta só variáveis CSS a partir de um objeto ChartConfig tipado (cores de tema do gráfico) — nunca texto vindo de usuário. Única ocorrência de dangerouslySetInnerHTML no projeto inteiro (conferido). Prazo mais longo que o padrão porque não é um risco sendo adiado, é uma análise já concluída — revisar só se o componente for modificado.",
+      "cardRef": "SEG-021",
+      "addedAt": "2026-09-17",
+      "expiresAt": "2027-09-17"
+    }
+  ]
+}

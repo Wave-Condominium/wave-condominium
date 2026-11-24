@@ -1,0 +1,25 @@
+# Normalização de fim de linha — fonte única de verdade.
+# Evita o churn de CRLF/LF entre Windows/macOS/Linux e os avisos
+# "LF will be replaced by CRLF". Texto é normalizado para LF no repositório
+# e também no working tree (eol=lf), padrão para projetos JS/TS.
+
+* text=auto eol=lf
+
+# Arquivos binários — nunca normalizar / nunca fazer diff de texto.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.eot   binary
+*.otf   binary
+
+# Scripts específicos de Windows devem manter CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

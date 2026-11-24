@@ -4,7 +4,7 @@ import { useState, useMemo, useCallback } from 'react';
 import {
   Shield, ExternalLink, Search, CheckCircle, XCircle, Clock,
   DollarSign, FileText, Vote, User, AlertCircle, Receipt, Filter,
-  AlertTriangle, Wrench, ChevronRight, ShieldCheck, ShieldAlert, Loader2, X,
+  AlertTriangle, Wrench, ChevronRight, ShieldCheck, ShieldAlert, Loader2, X, Home, Building2,
 } from 'lucide-react';
 import { useBlockchainAutoRegistry } from '@/hooks/useBlockchainAutoRegistry';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
@@ -15,7 +15,7 @@ import { verifyDocumentOnChain } from '@/app/actions/blockchain';
 // Tipos internos
 // ---------------------------------------------------------------------------
 
-type FilterType = 'all' | 'financial' | 'proposal' | 'vote' | 'document';
+type FilterType = 'all' | 'financial' | 'proposal' | 'vote' | 'document' | 'unit' | 'approval' | 'onboarding';
 type MoradorTab = 'pagamentos' | 'votacoes' | 'documentos';
 
 const TYPE_CONFIG: Record<string, { label: string; icon: React.ElementType; color: string; bg: string }> = {
@@ -24,6 +24,9 @@ const TYPE_CONFIG: Record<string, { label: string; icon: React.ElementType; colo
   vote:      { label: 'Voto',      icon: Vote,       color: 'text-blue-700',   bg: 'bg-blue-100'    },
   document:  { label: 'Documento', icon: FileText,   color: 'text-amber-700',  bg: 'bg-amber-100'   },
   user:      { label: 'Usuário',   icon: User,       color: 'text-gray-700',   bg: 'bg-gray-100'    },
+  unit:      { label: 'Unidade',   icon: Home,       color: 'text-wave-600',   bg: 'bg-wave-100'    },
+  approval:  { label: 'Aprovação', icon: CheckCircle, color: 'text-emerald-700', bg: 'bg-emerald-100' },
+  onboarding: { label: 'Onboarding', icon: Building2, color: 'text-brand-deep', bg: 'bg-wave-100'   },
 };
 
 const MORADOR_TABS: { key: MoradorTab; label: string; icon: React.ElementType }[] = [
@@ -438,8 +441,8 @@ function PagamentosTab({ boletos, search }: { boletos: any[]; search: string }) 
                       <span>Vencimento: {new Date(boleto.dueDate).toLocaleDateString('pt-BR')}</span>
                     )}
                     {boleto.blockchainHash && (
-                      <span className="font-mono text-wave-300">
-                        TX: {boleto.blockchainHash.slice(0, 8)}...
+                      <span className="text-wave-300">
+                        Código de verificação: <span className="font-mono">{boleto.blockchainHash.slice(0, 8)}…</span>
                       </span>
                     )}
                   </div>
@@ -815,7 +818,7 @@ function VerificationModal({ doc, result, error, loading, onClose }: {
                 </div>
                 {doc.txHash && (
                   <div>
-                    <p className="text-wave-400 text-xs font-medium uppercase tracking-wide">Identificador do registro</p>
+                    <p className="text-wave-400 text-xs font-medium uppercase tracking-wide">Código de verificação</p>
                     <p className="text-wave-600 text-xs font-mono mt-0.5 break-all leading-relaxed">
                       {doc.txHash.slice(0, 16)}...{doc.txHash.slice(-8)}
                     </p>
@@ -981,19 +984,19 @@ function AdminAuditView({ records }: { records: any[] }) {
                   <div className="bg-white rounded-lg p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <p className="text-wave-500 text-xs font-medium uppercase tracking-wide">
-                        Registro verificável
+                        Registro verificado
                       </p>
-                      <span className="text-xs text-wave-400 font-mono">Stellar Testnet</span>
+                      <span className="text-xs text-brand-teal font-medium">Comprovação de integridade</span>
                     </div>
                     <div>
-                      <p className="text-wave-400 text-xs mb-1">ID da transação</p>
+                      <p className="text-wave-400 text-xs mb-1">Código de verificação</p>
                       <p className="text-wave-700 text-xs font-mono break-all leading-relaxed">
                         {boleto.blockchainHash}
                       </p>
                     </div>
                     {boleto.blockchainRegisteredAt && (
                       <p className="text-wave-400 text-xs">
-                        Ancoragem: {new Date(boleto.blockchainRegisteredAt).toLocaleString('pt-BR')}
+                        Registrado em: {new Date(boleto.blockchainRegisteredAt).toLocaleString('pt-BR')}
                       </p>
                     )}
                     {explorerUrl ? (
@@ -1004,12 +1007,12 @@ function AdminAuditView({ records }: { records: any[] }) {
                         className="mt-2 flex items-center justify-center gap-2 w-full py-2.5 bg-brand-teal hover:opacity-90 text-white rounded-lg transition-colors text-xs font-medium"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />
-                        Verificar transação
+                        Verificar registro
                       </a>
                     ) : (
                       <div className="mt-2 flex items-center gap-2 w-full py-2.5 bg-amber-50 border border-amber-200 rounded-lg px-3">
                         <AlertCircle className="w-3.5 h-3.5 text-amber-500" />
-                        <p className="text-amber-700 text-xs">Hash registrado internamente · link do explorer indisponível</p>
+                        <p className="text-amber-700 text-xs">Registro guardado com segurança · verificação externa indisponível no momento</p>
                       </div>
                     )}
                   </div>
@@ -1020,7 +1023,7 @@ function AdminAuditView({ records }: { records: any[] }) {
         )}
       </div>
 
-      {/* Tabela de auditoria blockchain */}
+      {/* Relatório de auditoria (visível ao síndico) */}
       {boletosRegistrados.length > 0 && (
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl border border-wave-100 p-6 mb-8 shadow-lg relative z-10 overflow-x-auto">
           <div className="flex items-center gap-2 mb-4">
@@ -1031,7 +1034,7 @@ function AdminAuditView({ records }: { records: any[] }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-wave-100">
-                {['Unidade', 'Competência', 'Valor R$', 'Método', 'txHash', 'Status'].map(h => (
+                {['Unidade', 'Competência', 'Valor R$', 'Método', 'Código de verificação', 'Status'].map(h => (
                   <th key={h} className="text-left py-2 px-3 text-wave-500 text-xs font-medium">{h}</th>
                 ))}
               </tr>
@@ -1088,11 +1091,11 @@ function AdminAuditView({ records }: { records: any[] }) {
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar por título ou hash..."
+              placeholder="Buscar por título ou código..."
               className="w-full pl-9 pr-4 py-2 bg-wave-50 border border-wave-200 rounded-xl text-wave-800 text-sm focus:outline-none focus:ring-2 focus:ring-wave-300"
             />
           </div>
-          {(['all', 'financial', 'proposal', 'vote', 'document'] as const).map(f => (
+          {(['all', 'financial', 'proposal', 'vote', 'document', 'unit'] as const).map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -1103,7 +1106,8 @@ function AdminAuditView({ records }: { records: any[] }) {
               {f === 'all' ? 'Todos' :
                f === 'financial' ? 'Pagamentos' :
                f === 'proposal' ? 'Propostas' :
-               f === 'vote' ? 'Votos' : 'Documentos'}
+               f === 'vote' ? 'Votos' :
+               f === 'document' ? 'Documentos' : 'Unidades'}
             </button>
           ))}
         </div>
@@ -1157,7 +1161,6 @@ function AdminAuditView({ records }: { records: any[] }) {
 
                   <p className="text-wave-400 text-xs mt-2">
                     {new Date(record.timestamp).toLocaleString('pt-BR')}
-                    {record.ledger && ` · Ledger #${record.ledger}`}
                   </p>
                 </div>
               );
@@ -1173,25 +1176,22 @@ function AdminAuditView({ records }: { records: any[] }) {
           <div>
             <h3 className="text-wave-800 mb-2">Como funciona a verificação</h3>
             <p className="text-wave-600 text-sm mb-3">
-              Cada pagamento gera um comprovante em hash SHA-256 registrado permanentemente
-              na rede Stellar via campo <code className="bg-wave-100 px-1 rounded text-xs font-mono">memo_hash</code>.
-              Qualquer pessoa pode clicar em "Verificar transação" e confirmar o registro
-              diretamente no Stellar Explorer, sem depender da plataforma Wave.
+              Cada pagamento e documento recebe um código de verificação único no momento do
+              registro. A qualquer momento é possível comprovar que a informação é autêntica e
+              não foi alterada desde então — de forma independente da plataforma.
             </p>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-wave-500">
               <div className="bg-white/10 rounded-lg p-3">
-                <p className="text-wave-300 font-medium mb-1">Rede</p>
-                <p>Stellar Testnet</p>
+                <p className="text-wave-300 font-medium mb-1">Segurança</p>
+                <p>Registro permanente e imutável</p>
               </div>
               <div className="bg-white/10 rounded-lg p-3">
-                <p className="text-wave-300 font-medium mb-1">Explorer</p>
-                <a href="https://stellar.expert/explorer/testnet" target="_blank" rel="noopener noreferrer" className="underline hover:text-wave-200">
-                  stellar.expert ↗
-                </a>
+                <p className="text-wave-300 font-medium mb-1">Transparência</p>
+                <p>Verificação independente da plataforma</p>
               </div>
               <div className="bg-white/10 rounded-lg p-3">
-                <p className="text-wave-300 font-medium mb-1">Método</p>
-                <p>SHA-256 + memo_hash</p>
+                <p className="text-wave-300 font-medium mb-1">Integridade</p>
+                <p>Detecção de qualquer alteração</p>
               </div>
             </div>
           </div>

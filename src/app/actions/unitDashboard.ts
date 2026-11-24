@@ -26,6 +26,7 @@ import {
 
 const STATUS_FROM_DB: Record<PrismaStatusOcorrencia, StatusOcorrencia> = {
   ABERTA: "aberta", EM_ANDAMENTO: "em_andamento", CONCLUIDA: "concluida", CANCELADA: "cancelada",
+  AGUARDANDO_APROVACAO: "aberta", RECUSADA: "cancelada",
 };
 
 function toDoc(d: any): DocumentoUnidade {

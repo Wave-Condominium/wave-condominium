@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle, XCircle, MinusCircle, User, Clock, Gavel, Eye, Trash2 } from 'lucide-react';
+import { CheckCircle, XCircle, MinusCircle, User, Clock, Gavel, Eye, Ban } from 'lucide-react';
 
 import {
   type Proposta,
@@ -13,6 +13,7 @@ import {
   isVotacaoExpirada,
   CATEGORIA_LABEL,
 } from './governanceCore';
+import { validarMotivoRejeicao, MOTIVO_MAX } from './rejeicao';
 import { StatusBadge } from './StatusBadge';
 
 interface ProposalCardProps {
@@ -23,7 +24,8 @@ interface ProposalCardProps {
   canManage: boolean;
   onVotar: (id: string, escolha: VoteChoice) => void;
   onEncerrar: (id: string) => void;
-  onRemover?: (id: string) => void;
+  /** SÍN-005: rejeita a proposta com justificativa obrigatória. Retorna se deu certo. */
+  onRejeitar?: (id: string, motivo: string) => Promise<boolean> | void;
   onVerDetalhes?: (id: string) => void;
 }
 
@@ -33,10 +35,41 @@ export function ProposalCard({
   canManage,
   onVotar,
   onEncerrar,
-  onRemover,
+  onRejeitar,
   onVerDetalhes,
 }: ProposalCardProps) {
-  const [confirmandoRemocao, setConfirmandoRemocao] = useState(false);
+  const [rejeitando, setRejeitando] = useState(false);
+  const [motivo, setMotivo] = useState('');
+  const [erroMotivo, setErroMotivo] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
+
+  // A rejeição pelo síndico só faz sentido enquanto a proposta não estiver
+  // rejeitada; o registro é preservado no histórico após a decisão (SÍN-005).
+  const podeRejeitar = Boolean(canManage && onRejeitar) && proposta.status !== 'rejeitada';
+
+  const cancelarRejeicao = () => {
+    setRejeitando(false);
+    setMotivo('');
+    setErroMotivo(null);
+  };
+
+  const submitRejeicao = async () => {
+    const v = validarMotivoRejeicao(motivo);
+    if (!v.ok) {
+      setErroMotivo(v.erro);
+      return;
+    }
+    setErroMotivo(null);
+    setEnviando(true);
+    try {
+      const ok = await onRejeitar?.(proposta.id, v.motivo);
+      // onRejeitar retorna false quando o servidor recusa — mantém o form aberto.
+      if (ok !== false) cancelarRejeicao();
+    } finally {
+      setEnviando(false);
+    }
+  };
+
   const ap = apurar(proposta);
   const aberta = isEmVotacao(proposta) && !isVotacaoExpirada(proposta);
   const meuVoto = proposta.votos[userId];
@@ -117,28 +150,58 @@ export function ProposalCard({
       )}
 
       {/* Acoes */}
-      {(onVerDetalhes || (aberta && canManage) || (canManage && onRemover)) && (
+      {(onVerDetalhes || (aberta && canManage) || podeRejeitar) && (
         <div className="mt-4 border-t border-wave-100 pt-4">
-          {confirmandoRemocao ? (
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-              <span className="text-sm text-wave-600 sm:mr-auto">
-                Remover esta proposta? Esta acao nao pode ser desfeita.
-              </span>
-              <button
-                onClick={() => setConfirmandoRemocao(false)}
-                className="rounded-lg bg-wave-100 px-4 py-2 text-sm text-wave-600 transition-colors hover:bg-wave-200"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => {
-                  onRemover?.(proposta.id);
-                  setConfirmandoRemocao(false);
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white transition-colors hover:bg-red-700"
-              >
-                <Trash2 className="h-4 w-4" /> Remover
-              </button>
+          {rejeitando ? (
+            <div className="flex flex-col gap-3">
+              <div>
+                <label htmlFor={`motivo-${proposta.id}`} className="mb-1.5 block text-sm font-medium text-wave-700">
+                  Motivo da rejeição <span className="text-red-600">*</span>
+                </label>
+                <textarea
+                  id={`motivo-${proposta.id}`}
+                  value={motivo}
+                  onChange={(e) => {
+                    setMotivo(e.target.value);
+                    if (erroMotivo) setErroMotivo(null);
+                  }}
+                  maxLength={MOTIVO_MAX}
+                  rows={3}
+                  autoFocus
+                  placeholder="Ex.: proposta fora do escopo do orçamento aprovado para este ano."
+                  aria-invalid={Boolean(erroMotivo)}
+                  aria-describedby={erroMotivo ? `motivo-erro-${proposta.id}` : undefined}
+                  className={`w-full resize-none rounded-xl border bg-white px-3 py-2 text-sm text-wave-800 placeholder-wave-400 transition-all focus:outline-none focus:ring-2 ${
+                    erroMotivo
+                      ? 'border-red-300 focus:ring-red-200'
+                      : 'border-wave-200 focus:border-brand-teal focus:ring-brand-teal/30'
+                  }`}
+                />
+                <div className="mt-1 flex items-center justify-between">
+                  {erroMotivo ? (
+                    <span id={`motivo-erro-${proposta.id}`} className="text-xs text-red-600">{erroMotivo}</span>
+                  ) : (
+                    <span className="text-xs text-wave-400">A justificativa fica registrada no histórico da proposta.</span>
+                  )}
+                  <span className="text-xs text-wave-400">{motivo.length}/{MOTIVO_MAX}</span>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  onClick={cancelarRejeicao}
+                  disabled={enviando}
+                  className="rounded-lg bg-wave-100 px-4 py-2 text-sm text-wave-600 transition-colors hover:bg-wave-200 disabled:opacity-60"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={submitRejeicao}
+                  disabled={enviando}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+                >
+                  <Ban className="h-4 w-4" /> {enviando ? 'Rejeitando...' : 'Confirmar rejeição'}
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -158,12 +221,12 @@ export function ProposalCard({
                   <Gavel className="h-4 w-4" /> Encerrar agora
                 </button>
               )}
-              {canManage && onRemover && (
+              {podeRejeitar && (
                 <button
-                  onClick={() => setConfirmandoRemocao(true)}
+                  onClick={() => setRejeitando(true)}
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm text-red-600 transition-colors hover:bg-red-50"
                 >
-                  <Trash2 className="h-4 w-4" /> Remover
+                  <Ban className="h-4 w-4" /> Rejeitar
                 </button>
               )}
             </div>

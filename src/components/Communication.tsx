@@ -14,16 +14,24 @@
 // Publicacao de avisos e exclusiva do Sindico (RBAC); moradores visualizam.
 // ---------------------------------------------------------------------------
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MessageSquare, Calendar } from 'lucide-react';
 
 import { AvisosPanel } from './communication/AvisosPanel';
 import { ReservasPanel } from './communication/ReservasPanel';
-
-type Tab = 'avisos' | 'reservas';
+import { parseCommTab, type Tab } from './communication/communicationTab';
 
 export function Communication() {
   const [activeTab, setActiveTab] = useState<Tab>('avisos');
+
+  // MOR-024: ao chegar pela Ação Rápida "Reservas"
+  // (`/dashboard/communication?tab=reservas`), abre direto na aba Reservas.
+  // Lido no mount via window (sem useSearchParams, para não exigir Suspense).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const alvo = parseCommTab(new URLSearchParams(window.location.search).get('tab'));
+    if (alvo) setActiveTab(alvo);
+  }, []);
 
   return (
     <div className="relative min-h-screen bg-brand-light p-4 sm:p-6 lg:p-8">

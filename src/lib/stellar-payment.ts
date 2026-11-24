@@ -125,6 +125,10 @@ export async function processBoletoPagamento(params: {
   unitNumber: string;
   referenceMonth: string;
   payerName: string;
+  // SEG-007: opcionais só para o registro de segurança da assinatura da
+  // conta emissora — nunca usados na lógica de pagamento em si.
+  userId?: string | null;
+  condominiumId?: string | null;
 }): Promise<PaymentResult> {
   const timestamp = new Date().toISOString();
 
@@ -291,7 +295,11 @@ export async function processBoletoPagamento(params: {
     });
 
     const contentHash = await sha256Hex(receiptPayload);
-    const anchorResult = await anchorHashOnStellar(contentHash);
+    const anchorResult = await anchorHashOnStellar(contentHash, {
+      userId: params.userId ?? null,
+      condominiumId: params.condominiumId ?? null,
+      origem: "stellar-payment.processBoletoPagamento",
+    });
 
     const receipt = anchorResult.success
       ? {

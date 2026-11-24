@@ -1,0 +1,220 @@
+﻿name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # SEG-005 — Secret scanning. Roda em todo push/PR e BLOQUEIA o pipeline
+  # (job obrigatório) se encontrar algo com cara de segredo no histórico do repo.
+  # Sempre marcar este check como "required" em Settings → Branches, tanto
+  # para main quanto para develop.
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (histórico completo — segredo vazado e depois removido continua contando)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Binário do gitleaks, NÃO a gitleaks-action: a action exige licença paga
+      # para contas de organização (independente do repo ser público) e passou a
+      # falhar com "missing gitleaks license" quando a org foi renomeada para
+      # Wave-Condominium. O binário tem a mesma cobertura, sem licença e sem
+      # depender de uma action de terceiro — receita do GAIDE
+      # (.github/workflows/security.yml do template). Versão e SHA256 fixados:
+      # o checksum é conferido antes de executar, então um artefato trocado no
+      # release falha o job em vez de rodar.
+      - name: Gitleaks (histórico completo)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -sSL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks git --no-banner --redact .
+
+  # SEG-013 — Varredura de dependências (SCA). Roda em todo push/PR, em
+  # paralelo ao job "quality". BLOQUEIA o pipeline (job obrigatório) em
+  # vulnerabilidade High ou Critical; Moderate/Low ficam só registradas no
+  # relatório (artifact) para acompanhamento — não bloqueiam o deploy.
+  # Marcar este check como "required" em Settings → Branches (main e develop),
+  # junto com "Lint • Types • Test • Build" e "Secret Scan (gitleaks)".
+  dependency-scan:
+    name: Dependências (SCA)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Gate: falha o job (bloqueia o merge/deploy) em qualquer High/Critical
+      # que NÃO esteja em security/audit-exceptions.json (exceção documentada,
+      # com motivo, card de correção e prazo de validade). Sem exceção válida,
+      # bloqueia como um npm audit puro bloquearia.
+      # Não usar "npm audit fix --force" aqui — pode introduzir breaking changes;
+      # a correção é sempre uma decisão manual do desenvolvedor via PR.
+      - name: npm audit — bloqueio High/Critical (com exceções documentadas)
+        run: node scripts/security/audit-gate.mjs
+
+      # Relatório completo (inclui Moderate/Low), gerado mesmo se o passo acima
+      # falhar — é o que fica arquivado para avaliação/acompanhamento contínuo.
+      - name: Relatório completo do npm audit (para acompanhamento)
+        if: always()
+        run: npm audit --json > npm-audit-report.json || true
+
+      - name: Upload do relatório de auditoria
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: npm-audit-report.json
+          retention-days: 90
+
+      # SBOM (CycloneDX) — inventário de dependências diretas e transitivas
+      # do build atual, para rastreio futuro de pacote/versão/vulnerabilidade.
+      - name: Gerar SBOM (CycloneDX)
+        if: always()
+        run: npx --yes @cyclonedx/cyclonedx-npm --output-file sbom.cdx.json
+
+      - name: Upload do SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          retention-days: 90
+
+  # SEG-021 — SAST (Semgrep). Roda em todo push/PR, em paralelo aos demais
+  # jobs. BLOQUEIA o pipeline (job obrigatório) em finding de severidade
+  # ERROR (equivalente a High/Critical) que não esteja em
+  # security/sast-exceptions.json (mesma allowlist documentada do SEG-013).
+  # WARNING/INFO ficam só no relatório (artifact), para acompanhamento.
+  # Marcar este check como "required" em Settings → Branches, junto com os
+  # outros três (Lint • Types • Test • Build, Secret Scan, Dependências SCA).
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar Semgrep
+        run: pip install semgrep
+
+      # Rulesets públicos do Semgrep Registry (SQL Injection, XSS, auth, uso
+      # inseguro de API — cobertura genérica) + regras PRÓPRIAS
+      # (.semgrep/custom-rules.yml, de alta confiança, testadas localmente)
+      # para os casos que os pacotes públicos não cobrem bem sozinhos (ex.:
+      # eval() puro não é pego por nenhum pacote público testado). Nenhum
+      # dos dois exige conta/token.
+      - name: Rodar Semgrep (relatório completo, todas as severidades)
+        run: |
+          semgrep scan \
+            --config=p/owasp-top-ten \
+            --config=p/javascript \
+            --config=p/typescript \
+            --config=p/react \
+            --config=p/nextjs \
+            --config=.semgrep/custom-rules.yml \
+            --json --output=semgrep-report.json
+
+      - name: Upload do relatório Semgrep
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+          retention-days: 90
+
+      # Gate: falha o job (bloqueia o merge) em qualquer finding ERROR sem
+      # exceção documentada e válida. Não usar "semgrep --error" direto no
+      # comando acima — precisamos da allowlist antes de decidir bloquear.
+      - name: SAST — bloqueio de findings ERROR (com exceções documentadas)
+        run: node scripts/security/sast-gate.mjs
+
+  quality:
+    name: Lint • Types • Test • Build
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://ci:ci@localhost:5432/ci?schema=public"
+      WAVE_SESSION_SECRET: "ci-dummy-secret-not-used-in-runtime"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      - name: Build (sem migrate)
+        run: npx next build
+
+      # SEG-006 Teste 2 — confirma que nenhum padrão de segredo estruturado
+      # (connection string, chave privada, prefixo de API key conhecido)
+      # foi parar no bundle enviado ao navegador (.next/static/). Roda a
+      # cada build — não é uma verificação pontual.
+      - name: Varredura de segredos no bundle do cliente
+        run: node scripts/security/scan-client-bundle.mjs
+
+  # GAIDE — Drift dos bindings por ferramenta. Os procedimentos vivem uma única
+  # vez em agents/skills/ e agents/reviewers/; os diretórios .claude/skills/,
+  # .claude/agents/ e .agents/workflows/ são GERADOS a partir deles por
+  # scripts/sync-adapters.sh. Este job falha se alguém editar o arquivo gerado
+  # em vez da fonte (ou esquecer de rodar o sync), que é como as instruções do
+  # agente silenciosamente divergem entre Claude Code e Antigravity.
+  # Correção: rodar scripts/sync-adapters.sh e commitar fonte + bindings.
+  # Os scanners do GAIDE (gitleaks, semgrep, osv-scanner) NÃO entram aqui:
+  # já são cobertos pelos jobs secret-scan, dependency-scan e sast acima, que
+  # têm as allowlists documentadas em security/.
+  adapters:
+    name: Drift dos bindings de agente (GAIDE)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verificar sincronia de agents/ com .claude/ e .agents/
+        run: scripts/sync-adapters.sh --check

@@ -1,20 +1,19 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Vote, Plus, TrendingUp, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useUser } from '../../contexts/UserContext';
 import { isManager } from '../../lib/rbac';
 import { type Proposta, type VoteChoice, isAprovada, isEmVotacao, isRejeitada } from './governanceCore';
+import { type Filtro, parseFiltroParam } from './governanceFilter';
 import { useGovernance } from './useGovernance';
 import { GovernanceDashboard } from './GovernanceDashboard';
 import { ProposalCard } from './ProposalCard';
 import { FilaPrioridades } from './FilaPrioridades';
 import { DeliberacoesAnteriores } from './DeliberacoesAnteriores';
 import { CreatePropostaModal } from './CreatePropostaModal';
-
-type Filtro = 'todas' | 'aberta' | 'aprovadas' | 'rejeitadas';
 
 interface GovernanceViewProps {
   onViewProposal: (proposalId: string) => void;
@@ -30,11 +29,24 @@ export function GovernanceView({ onViewProposal }: GovernanceViewProps) {
   const canManage = isManager(userProfile.role);
   const userId = userProfile.id || 'morador-demo';
 
-  const { propostas, loading, emVotacao, aprovadas, fila, config, stats, criarProposta, votar, encerrarVotacao, removerProposta } = useGovernance();
+  const { propostas, loading, emVotacao, aprovadas, fila, config, stats, criarProposta, votar, encerrarVotacao, rejeitarProposta } = useGovernance();
 
   const [view, setView] = useState<'votacoes' | 'fila' | 'deliberacoes'>('votacoes');
   const [filtro, setFiltro] = useState<Filtro>('todas');
   const [showCreate, setShowCreate] = useState(false);
+
+  // MOR-020: quando a tela é aberta via Ação Rápida "Votações"
+  // (`/dashboard/governance?filtro=aberta`), inicia direto nas votações em
+  // andamento. Lido no mount a partir da URL (sem useSearchParams, para não
+  // exigir Suspense no build); a navegação normal pelo menu mantém o padrão.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const alvo = parseFiltroParam(new URLSearchParams(window.location.search).get('filtro'));
+    if (alvo) {
+      setView('votacoes');
+      setFiltro(alvo);
+    }
+  }, []);
 
   const lista = useMemo<Proposta[]>(() => {
     if (filtro === 'aberta') return emVotacao;
@@ -58,6 +70,19 @@ export function GovernanceView({ onViewProposal }: GovernanceViewProps) {
       console.error('Falha ao criar proposta', err);
       toast.error('Nao foi possivel publicar a proposta. Tente novamente.');
     }
+  };
+
+  // SÍN-005: rejeição com justificativa obrigatória (a proposta é preservada no
+  // histórico). O ProposalCard só chama isto após validar o motivo localmente;
+  // o servidor revalida. Retorna sucesso/erro para o card fechar/manter o form.
+  const handleRejeitar = async (id: string, motivo: string): Promise<boolean> => {
+    const res = await rejeitarProposta(id, motivo);
+    if (res.ok) {
+      toast.success('Proposta rejeitada.', { description: 'O registro foi mantido no histórico com o motivo da decisão.' });
+      return true;
+    }
+    toast.error(res.error || 'Nao foi possivel rejeitar a proposta.');
+    return false;
   };
 
   return (
@@ -137,7 +162,7 @@ export function GovernanceView({ onViewProposal }: GovernanceViewProps) {
                   canManage={canManage}
                   onVotar={handleVotar}
                   onEncerrar={encerrarVotacao}
-                  onRemover={removerProposta}
+                  onRejeitar={handleRejeitar}
                   onVerDetalhes={onViewProposal}
                 />
               ))}

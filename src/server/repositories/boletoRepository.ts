@@ -24,4 +24,24 @@ export const boletoRepository = {
   update(id: string, condominiumId: string, data: Prisma.BoletoUncheckedUpdateInput) {
     return prisma.boleto.updateMany({ where: { id, condominiumId }, data });
   },
+
+  /** SÍN-009: registra o envio de um lembrete de cobrança ao morador. */
+  marcarLembrete(id: string, condominiumId: string, at: Date) {
+    return prisma.boleto.updateMany({ where: { id, condominiumId }, data: { lastReminderAt: at } });
+  },
+
+  /** SÍN-009: registra um acordo de parcelamento (registro leve no boleto). */
+  registrarAcordo(
+    id: string,
+    condominiumId: string,
+    data: {
+      acordoParcelas: number;
+      acordoPrimeiraParcela: string;
+      acordoObservacao: string | null;
+      acordoRegistradoEm: Date;
+      acordoRegistradoPor: string;
+    },
+  ) {
+    return prisma.boleto.updateMany({ where: { id, condominiumId }, data });
+  },
 };

@@ -12,8 +12,11 @@
 
 import type { StatusBoleto as PrismaStatus, FormaPagamento as PrismaPM } from "@prisma/client";
 import { requireSession, requireManager } from "@/server/auth/guard";
+import { isManager } from "@/lib/rbac";
 import { boletoRepository } from "@/server/repositories/boletoRepository";
+import { userRepository } from "@/server/repositories/userRepository";
 import type { BoletoFull, PaymentMethod } from "@/components/boletos/boletoTypes";
+import { validarAcordo, type AcordoInput } from "@/components/boletos/acordoParcelamento";
 
 const STATUS_TO_DB: Record<string, PrismaStatus> = {
   pending: "PENDING", paid: "PAID", compensated: "COMPENSATED",
@@ -55,6 +58,12 @@ function toApp(b: any): BoletoFull {
     blockchainHash: b.blockchainHash ?? undefined,
     blockchainRegisteredAt: b.blockchainRegisteredAt ? new Date(b.blockchainRegisteredAt).toISOString() : undefined,
     stellarExplorerUrl: b.stellarExplorerUrl ?? undefined,
+    lastReminderAt: b.lastReminderAt ? new Date(b.lastReminderAt).toISOString() : undefined,
+    acordoParcelas: b.acordoParcelas ?? undefined,
+    acordoPrimeiraParcela: b.acordoPrimeiraParcela ?? undefined,
+    acordoObservacao: b.acordoObservacao ?? undefined,
+    acordoRegistradoEm: b.acordoRegistradoEm ? new Date(b.acordoRegistradoEm).toISOString() : undefined,
+    acordoRegistradoPor: b.acordoRegistradoPor ?? undefined,
   };
 }
 
@@ -118,6 +127,14 @@ export interface BoletoPatch {
 export async function atualizarBoletoAction(id: string, patch: BoletoPatch): Promise<{ ok: boolean }> {
   const session = await requireSession();
   if (!session.condominiumId) return { ok: false };
+
+  // SÍN-009: o gestor (Síndico/Admin/Administradora) NÃO paga boletos de
+  // terceiros. Um pagamento é identificado por `paidAt`; quem paga é o próprio
+  // morador da unidade. Bloqueado no SERVIDOR — não basta ocultar o botão.
+  if (patch.paidAt && isManager(session.role)) {
+    return { ok: false };
+  }
+
   await boletoRepository.update(id, session.condominiumId, {
     ...(patch.status !== undefined ? { status: STATUS_TO_DB[patch.status] } : {}),
     ...(patch.paymentMethod !== undefined ? { paymentMethod: patch.paymentMethod ? PM_TO_DB[patch.paymentMethod] : null } : {}),
@@ -128,4 +145,55 @@ export async function atualizarBoletoAction(id: string, patch: BoletoPatch): Pro
     ...(patch.stellarExplorerUrl !== undefined ? { stellarExplorerUrl: patch.stellarExplorerUrl } : {}),
   });
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// SÍN-009 — Ações de cobrança do gestor (Síndico/Admin), sem pagar boletos.
+// ---------------------------------------------------------------------------
+
+export type CobrancaResult =
+  | { ok: true; boleto: BoletoFull }
+  | { ok: false; error: string };
+
+/** Registra o envio de um lembrete de cobrança ao morador (apenas gestor). */
+export async function enviarLembreteBoletoAction(id: string): Promise<CobrancaResult> {
+  const session = await requireManager();
+  if (!session.condominiumId) return { ok: false, error: "Condomínio ativo não identificado na sessão." };
+
+  const boleto = await boletoRepository.findById(id, session.condominiumId);
+  if (!boleto) return { ok: false, error: "Boleto não encontrado." };
+
+  const agora = new Date();
+  await boletoRepository.marcarLembrete(id, session.condominiumId, agora);
+
+  const atualizado = await boletoRepository.findById(id, session.condominiumId);
+  return atualizado
+    ? { ok: true, boleto: toApp(atualizado) }
+    : { ok: false, error: "Falha ao registrar o lembrete." };
+}
+
+/** Registra um acordo de parcelamento no boleto (apenas gestor). */
+export async function registrarAcordoAction(id: string, input: AcordoInput): Promise<CobrancaResult> {
+  const session = await requireManager();
+  if (!session.condominiumId) return { ok: false, error: "Condomínio ativo não identificado na sessão." };
+
+  const validacao = validarAcordo(input);
+  if (!validacao.ok) return { ok: false, error: validacao.erro };
+
+  const boleto = await boletoRepository.findById(id, session.condominiumId);
+  if (!boleto) return { ok: false, error: "Boleto não encontrado." };
+
+  const responsavel = await userRepository.findById(session.userId);
+  await boletoRepository.registrarAcordo(id, session.condominiumId, {
+    acordoParcelas: validacao.acordo.parcelas,
+    acordoPrimeiraParcela: validacao.acordo.primeiraParcela,
+    acordoObservacao: validacao.acordo.observacao || null,
+    acordoRegistradoEm: new Date(),
+    acordoRegistradoPor: responsavel?.name ?? "Gestor",
+  });
+
+  const atualizado = await boletoRepository.findById(id, session.condominiumId);
+  return atualizado
+    ? { ok: true, boleto: toApp(atualizado) }
+    : { ok: false, error: "Falha ao registrar o acordo." };
 }

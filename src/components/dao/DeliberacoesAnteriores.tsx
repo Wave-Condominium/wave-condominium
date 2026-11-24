@@ -72,10 +72,12 @@ export function DeliberacoesAnteriores({ aprovadas, rejeitadas, config, onVerDet
                   <Chip>{CATEGORIA_LABEL[p.categoria]}</Chip>
                 </div>
                 <p className="text-xs text-wave-500">
-                  Votacao encerrada em {formatData(p.encerradaEm)} • {ap.percentReprovacao}% de reprovacao • {ap.total} votos
+                  {p.rejeitadaPor
+                    ? `Rejeitada por ${p.rejeitadaPor} em ${formatData(p.rejeitadaEm ?? p.encerradaEm)}`
+                    : `Votacao encerrada em ${formatData(p.encerradaEm)} • ${ap.percentReprovacao}% de reprovacao • ${ap.total} votos`}
                 </p>
                 <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                  Motivo: {motivoRejeicao(config)}
+                  Motivo: {p.motivoRejeicao ?? motivoRejeicao(config)}
                 </p>
               </Card>
             );

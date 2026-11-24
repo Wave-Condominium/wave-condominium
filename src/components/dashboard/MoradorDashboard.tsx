@@ -11,6 +11,10 @@ import type { SolicitacaoServico } from './moradorDashboardTypes';
 import { BlockCard, BlockEmpty } from './BlockCard';
 import { OcorrenciaBadge } from './OcorrenciaBadge';
 import { SolicitacaoDetailsModal } from './SolicitacaoDetailsModal';
+import { MoradorAtencaoSection } from './MoradorAtencaoSection';
+import { ProfissionaisSection } from '../staff/ProfissionaisSection';
+import { FundoReservaCard } from '../fundoReserva/FundoReservaCard';
+import { MinhasReceitasCard } from '../treasury/MinhasReceitasCard';
 
 const MAX_ITENS = 4;
 
@@ -36,6 +40,16 @@ export function MoradorDashboard() {
           {userProfile.unit ? `${userProfile.unit}: ` : ''}apenas o que pertence a sua unidade e os comunicados do condominio.
         </p>
       </header>
+
+      {/* Atenção Necessária — o que exige a atenção do morador (MOR-015):
+          comunicados urgentes/importantes + solicitações da unidade em aberto. */}
+      <MoradorAtencaoSection comunicados={comunicados} solicitacoes={solicitacoes} />
+
+      {/* MOR-023: Fundo de Reserva via Open Finance (somente leitura). */}
+      <FundoReservaCard />
+
+      {/* MOR-057: Receitas da própria cota (confirmação do PSP → contabilização). */}
+      <MinhasReceitasCard />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Meus Documentos */}
@@ -141,6 +155,10 @@ export function MoradorDashboard() {
             </ul>
           )}
         </BlockCard>
+
+        {/* Funcionários e Prestadores do condomínio (MOR-021) — somente leitura
+            para o Morador; cadastro/gestão é exclusivo de Síndico/Administradora. */}
+        <ProfissionaisSection />
       </div>
 
       {detalhe && <SolicitacaoDetailsModal solicitacao={detalhe} onClose={() => setDetalhe(null)} />}

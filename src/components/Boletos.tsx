@@ -7,8 +7,10 @@ import { PagamentoStellarModal } from './PagamentoStellarModal';
 import { AbertosSection } from './boletos/AbertosSection';
 import { HistoricoSection } from './boletos/HistoricoSection';
 import { ComprovanteModal } from './boletos/ComprovanteModal';
+import { RegistrarAcordoModal } from './boletos/RegistrarAcordoModal';
+import type { BoletoFull } from './boletos/boletoTypes';
 import { isPago } from './boletos/boletoFormat';
-import { listBoletosAction, emitirBoletoAction, atualizarBoletoAction } from '@/app/actions/boletos';
+import { listBoletosAction, emitirBoletoAction, atualizarBoletoAction, enviarLembreteBoletoAction, registrarAcordoAction } from '@/app/actions/boletos';
 import { useBlockchainAutoRegistry } from '../hooks/useBlockchainAutoRegistry';
 import { isManager, isPlatformAdmin, type Role } from '@/lib/rbac';
 
@@ -38,6 +40,13 @@ interface Boleto {
     reserveFund: number;
     otherFees: number;
   };
+  // Gestão de cobrança pelo síndico (SÍN-009).
+  lastReminderAt?: string;
+  acordoParcelas?: number;
+  acordoPrimeiraParcela?: string;
+  acordoObservacao?: string;
+  acordoRegistradoEm?: string;
+  acordoRegistradoPor?: string;
 }
 
 interface BoletosProps {
@@ -104,10 +113,36 @@ export function Boletos({ userProfile }: BoletosProps) {
   const [selectedBoleto, setSelectedBoleto] = useState<Boleto | null>(null);
   const [boletoParaPagar, setBoletoParaPagar] = useState<Boleto | null>(null);
   const [comprovanteBoleto, setComprovanteBoleto] = useState<Boleto | null>(null);
+  const [boletoAcordo, setBoletoAcordo] = useState<Boleto | null>(null);
   const { registerPayment } = useBlockchainAutoRegistry();
 
   const canIssueBoleto = isManager(userProfile.role);
   const isAdmin = isPlatformAdmin(userProfile.role);
+  // SÍN-009: o gestor (Síndico/Admin) NÃO paga boletos de terceiros. Apenas o
+  // morador paga o próprio. Gestor vê ações de cobrança (lembrete/acordo).
+  const canPay = !isManager(userProfile.role);
+
+  async function handleEnviarLembrete(boleto: Boleto) {
+    const res = await enviarLembreteBoletoAction(boleto.id);
+    if (res.ok) {
+      setBoletos((prev) => prev.map((b) => (b.id === boleto.id ? { ...b, ...(res.boleto as Boleto) } : b)));
+      toast.success('Lembrete enviado!', { description: `Cobrança da unidade ${boleto.unitNumber} registrada.` });
+    } else {
+      toast.error(res.error || 'Não foi possível enviar o lembrete.');
+    }
+  }
+
+  async function handleRegistrarAcordo(input: { parcelas: number; primeiraParcela: string; observacao: string }): Promise<boolean> {
+    if (!boletoAcordo) return false;
+    const res = await registrarAcordoAction(boletoAcordo.id, input);
+    if (res.ok) {
+      setBoletos((prev) => prev.map((b) => (b.id === boletoAcordo.id ? { ...b, ...(res.boleto as Boleto) } : b)));
+      toast.success('Acordo registrado!', { description: `Parcelamento em ${input.parcelas}x registrado no boleto.` });
+      return true;
+    }
+    toast.error(res.error || 'Não foi possível registrar o acordo.');
+    return false;
+  }
 
   // Callback de sucesso do pagamento Stellar
   async function handlePagamentoStellarSucesso(result: any) {
@@ -416,8 +451,11 @@ export function Boletos({ userProfile }: BoletosProps) {
         ) : activeTab === 'abertos' ? (
           <AbertosSection
             boletos={abertos}
+            canPay={canPay}
             onVerDetalhes={(b) => setSelectedBoleto(b as Boleto)}
             onPagar={(b) => setBoletoParaPagar(b as Boleto)}
+            onEnviarLembrete={(b) => handleEnviarLembrete(b as Boleto)}
+            onRegistrarAcordo={(b) => setBoletoAcordo(b as Boleto)}
           />
         ) : (
           <HistoricoSection
@@ -461,7 +499,7 @@ export function Boletos({ userProfile }: BoletosProps) {
           onClose={() => setSelectedBoleto(null)}
           onPagar={() => setBoletoParaPagar(selectedBoleto)}
           onSimulateCompensation={handleSimulateCompensation}
-          canPagar={selectedBoleto.status === 'pending'}
+          canPagar={canPay && selectedBoleto.status === 'pending'}
           canSimulateCompensation={isAdmin && selectedBoleto.status === 'paid'}
         />
       )}
@@ -482,6 +520,14 @@ export function Boletos({ userProfile }: BoletosProps) {
         <ComprovanteModal
           boleto={comprovanteBoleto}
           onClose={() => setComprovanteBoleto(null)}
+        />
+      )}
+
+      {boletoAcordo && (
+        <RegistrarAcordoModal
+          boleto={boletoAcordo as BoletoFull}
+          onSubmit={handleRegistrarAcordo}
+          onClose={() => setBoletoAcordo(null)}
         />
       )}
     </div>

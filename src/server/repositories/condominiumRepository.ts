@@ -9,7 +9,9 @@
 // Requer `prisma generate` (models Condominium/Administradora).
 // ---------------------------------------------------------------------------
 
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
+import { formatCNPJ } from "@/lib/validators";
 
 export interface CondominioMetrics {
   totalMoradores: number;
@@ -18,6 +20,36 @@ export interface CondominioMetrics {
 }
 
 export const condominiumRepository = {
+  // SÍN-030 (onboarding) --------------------------------------------------------
+
+  /** Cria a entidade Condomínio (onboarding). CNPJ deve vir normalizado (dígitos). */
+  create(data: Prisma.CondominiumUncheckedCreateInput) {
+    return prisma.condominium.create({ data });
+  },
+
+  /**
+   * Busca por CNPJ aceitando as duas grafias (só dígitos ou formatado) — base da
+   * regra "1 CNPJ = 1 condomínio", robusta contra dados legados formatados.
+   */
+  findByCnpjEquivalente(cnpjDigits: string) {
+    const formatado = formatCNPJ(cnpjDigits);
+    return prisma.condominium.findFirst({
+      where: { cnpj: { in: [cnpjDigits, formatado] } },
+      select: { id: true, name: true },
+    });
+  },
+
+  /** Atualiza o estado do vínculo com o PSP (subconta/KYC). */
+  updatePsp(
+    condominiumId: string,
+    data: { pspSubcontaId?: string; pspStatus?: string; pspAtualizadoEm?: Date; pspMotivoRecusa?: string | null },
+  ) {
+    return prisma.condominium.update({
+      where: { id: condominiumId },
+      data: data as Prisma.CondominiumUncheckedUpdateInput,
+    });
+  },
+
   /** Lista os condominios geridos por uma administradora (ordem alfabetica). */
   listByAdministradora(administradoraId: string) {
     return prisma.condominium.findMany({
@@ -39,6 +71,25 @@ export const condominiumRepository = {
 
   findById(condominiumId: string) {
     return prisma.condominium.findUnique({ where: { id: condominiumId } });
+  },
+
+  // SÍN-026 (financeiro): alçada de aprovação de despesas.
+
+  /** Lê a alçada de aprovação (null = sem alçada configurada). */
+  async getAlcada(condominiumId: string): Promise<number | null> {
+    const c = await prisma.condominium.findUnique({
+      where: { id: condominiumId },
+      select: { alcadaAprovacao: true },
+    });
+    return c && c.alcadaAprovacao != null ? Number(c.alcadaAprovacao) : null;
+  },
+
+  /** Define (valor) ou limpa (null) a alçada de aprovação. */
+  setAlcada(condominiumId: string, valor: number | null) {
+    return prisma.condominium.update({
+      where: { id: condominiumId },
+      data: { alcadaAprovacao: valor },
+    });
   },
 
   /** Metricas agregadas de um condominio para o painel da administradora. */

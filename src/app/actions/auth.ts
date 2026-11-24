@@ -6,12 +6,26 @@ import {
   getCurrentUser,
   changePassword,
   registerMorador,
+  setActiveProfile,
   type RegisterMoradorInput,
 } from "@/server/services/authService";
 import { requireManager, AuthError } from "@/server/auth/guard";
+import type { Role } from "@/lib/rbac";
 
 export async function loginAction(email: string, password: string) {
   const result = await login(email, password);
+  if (!result.ok) return { error: { message: result.error }, user: null, needsProfileChoice: false };
+  return { error: null, user: result.user, needsProfileChoice: result.needsProfileChoice };
+}
+
+// ---------------------------------------------------------------------------
+// Perfil ativo (SÍN-003) — usuário com mais de um perfil escolhe/alterna o
+// perfil ativo da sessão. A validação de RBAC (perfil ∈ disponíveis) roda no
+// servidor, dentro de setActiveProfile — nunca se confia no cliente.
+// ---------------------------------------------------------------------------
+
+export async function setActiveProfileAction(role: Role) {
+  const result = await setActiveProfile(role);
   if (!result.ok) return { error: { message: result.error }, user: null };
   return { error: null, user: result.user };
 }

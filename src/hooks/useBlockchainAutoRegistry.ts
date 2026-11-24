@@ -6,7 +6,7 @@ import { anchorMetadataOnChain } from '@/app/actions/blockchain';
 
 export interface BlockchainRecord {
   id: string;
-  type: 'proposal' | 'vote' | 'financial' | 'document' | 'user';
+  type: 'proposal' | 'vote' | 'financial' | 'document' | 'user' | 'unit' | 'approval' | 'onboarding';
   title: string;
   description: string;
   timestamp: string;
@@ -226,6 +226,133 @@ export function useBlockchainAutoRegistry() {
     );
   }, [registerOnBlockchain]);
 
+  // SÍN-021: registra na trilha de Auditoria uma alteração no cadastro de
+  // unidades (informação alterada, valor anterior e novo, responsável). Silent:
+  // não interrompe o fluxo de cadastro com o toast de ancoragem.
+  const registerUnitChange = useCallback(async (data: {
+    acao: 'criada' | 'atualizada' | 'status' | 'removida' | 'importadas';
+    rotulo: string;
+    responsavel: string;
+    alteracoes?: { campo: string; de: string; para: string }[];
+  }) => {
+    const acaoLabel =
+      data.acao === 'criada' ? 'cadastrada' :
+      data.acao === 'atualizada' ? 'atualizada' :
+      data.acao === 'status' ? 'teve o status atualizado' :
+      data.acao === 'importadas' ? 'importadas' :
+      'removida';
+    const title = data.acao === 'importadas'
+      ? `Importação de unidades: ${data.rotulo}`
+      : `Unidade ${acaoLabel}: ${data.rotulo}`;
+    const description = data.alteracoes && data.alteracoes.length
+      ? data.alteracoes.map(a => `${a.campo}: ${a.de} → ${a.para}`).join(' · ')
+      : `Alteração registrada por ${data.responsavel}`;
+    return registerOnBlockchain(
+      'unit',
+      title,
+      description,
+      {
+        rotulo: data.rotulo,
+        acao: data.acao,
+        responsavel: data.responsavel,
+        alteracoes: data.alteracoes ?? [],
+        registradoEm: new Date().toISOString(),
+      },
+      true,
+    );
+  }, [registerOnBlockchain]);
+
+  // SÍN-022: registra na trilha de Auditoria uma alteração de ACESSO de morador
+  // (convite gerado, reenviado ou acesso revogado). Reusa o tipo 'user' (eventos
+  // de conta/acesso). Silent: não interrompe o fluxo com o toast de ancoragem.
+  const registerAccessChange = useCallback(async (data: {
+    acao: 'convite_gerado' | 'convite_reenviado' | 'acesso_revogado' | 'titularidade_transferida' | 'locacao_registrada';
+    morador: string;
+    unidadeRotulo: string;
+    vinculo: string;
+    responsavel: string;
+    /** Nome do morador anterior (trocas de venda/locação). */
+    anterior?: string | null;
+  }) => {
+    const acaoLabel =
+      data.acao === 'convite_gerado' ? 'Convite de acesso gerado' :
+      data.acao === 'convite_reenviado' ? 'Convite de acesso reenviado' :
+      data.acao === 'titularidade_transferida' ? 'Transferência de titularidade' :
+      data.acao === 'locacao_registrada' ? 'Nova locação registrada' :
+      'Acesso de morador revogado';
+    const anteriorTxt = data.anterior ? ` (anterior: ${data.anterior})` : '';
+    return registerOnBlockchain(
+      'user',
+      `${acaoLabel}: ${data.morador}`,
+      `${data.vinculo} · ${data.unidadeRotulo} — por ${data.responsavel}${anteriorTxt}`,
+      {
+        acao: data.acao,
+        morador: data.morador,
+        anterior: data.anterior ?? null,
+        unidade: data.unidadeRotulo,
+        vinculo: data.vinculo,
+        responsavel: data.responsavel,
+        registradoEm: new Date().toISOString(),
+      },
+      true,
+    );
+  }, [registerOnBlockchain]);
+
+  // SÍN-026: registra na trilha de Auditoria uma decisão do Síndico na Central
+  // de Aprovações (aprovação/rejeição de uma pendência). Silent: não interrompe
+  // o fluxo com o toast de ancoragem.
+  const registerApprovalDecision = useCallback(async (data: {
+    decisao: 'aprovada' | 'rejeitada';
+    tipoLabel: string;
+    titulo: string;
+    solicitante: string;
+    responsavel: string;
+    motivo?: string;
+  }) => {
+    const acaoLabel = data.decisao === 'aprovada' ? 'Aprovação' : 'Rejeição';
+    const motivoTxt = data.motivo ? ` (motivo: ${data.motivo})` : '';
+    return registerOnBlockchain(
+      'approval',
+      `${acaoLabel}: ${data.titulo}`,
+      `${data.tipoLabel} · solicitado por ${data.solicitante} — decidido por ${data.responsavel}${motivoTxt}`,
+      {
+        decisao: data.decisao,
+        tipo: data.tipoLabel,
+        titulo: data.titulo,
+        solicitante: data.solicitante,
+        responsavel: data.responsavel,
+        motivo: data.motivo ?? null,
+        registradoEm: new Date().toISOString(),
+      },
+      true,
+    );
+  }, [registerOnBlockchain]);
+
+  // SÍN-030: rastreabilidade das etapas do onboarding do condomínio (cadastro,
+  // início da subconta no PSP, progressão do KYC até apto).
+  const registerOnboardingStep = useCallback(async (data: {
+    etapa: string;
+    condominioNome: string;
+    cnpj: string;
+    responsavel: string;
+    statusPsp: string;
+  }) => {
+    return registerOnBlockchain(
+      'onboarding',
+      `Onboarding: ${data.condominioNome}`,
+      `${data.etapa} · CNPJ ${data.cnpj} · responsável ${data.responsavel} — PSP: ${data.statusPsp}`,
+      {
+        etapa: data.etapa,
+        condominioNome: data.condominioNome,
+        cnpj: data.cnpj,
+        responsavel: data.responsavel,
+        statusPsp: data.statusPsp,
+        registradoEm: new Date().toISOString(),
+      },
+      true,
+    );
+  }, [registerOnBlockchain]);
+
   return {
     records,
     registerUser,
@@ -233,6 +360,10 @@ export function useBlockchainAutoRegistry() {
     registerVote,
     registerPayment,
     registerTransaction,
-    registerDocument
+    registerDocument,
+    registerUnitChange,
+    registerAccessChange,
+    registerApprovalDecision,
+    registerOnboardingStep,
   };
 }

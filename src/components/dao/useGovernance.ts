@@ -28,7 +28,7 @@ import {
   criarPropostaAction,
   votarAction,
   encerrarVotacaoAction,
-  removerPropostaAction,
+  rejeitarPropostaAction,
 } from '@/app/actions/governanca';
 
 export interface GovernanceStats {
@@ -51,7 +51,8 @@ export interface UseGovernanceResult {
   criarProposta: (input: { titulo: string; descricao: string; categoria: Categoria }, autor: string) => Promise<Proposta | null>;
   votar: (propostaId: string, userId: string, escolha: VoteChoice) => Promise<'ok' | 'ja_votou' | 'encerrada'>;
   encerrarVotacao: (propostaId: string) => Promise<void>;
-  removerProposta: (propostaId: string) => Promise<void>;
+  /** Rejeita a proposta com justificativa obrigatória, mantendo-a no histórico (SÍN-005). */
+  rejeitarProposta: (propostaId: string, motivo: string) => Promise<{ ok: boolean; error?: string }>;
   setTotalMoradores: (n: number) => void;
 }
 
@@ -141,9 +142,14 @@ export function useGovernance(): UseGovernanceResult {
     [refresh],
   );
 
-  const removerProposta = useCallback(async (propostaId: string) => {
-    await removerPropostaAction(propostaId);
-    setPropostas((prev) => prev.filter((p) => p.id !== propostaId));
+  const rejeitarProposta = useCallback(async (propostaId: string, motivo: string) => {
+    const res = await rejeitarPropostaAction(propostaId, motivo);
+    if (res.ok) {
+      // Mantém a proposta na lista (agora REJEITADA) — preserva o histórico.
+      setPropostas((prev) => prev.map((p) => (p.id === propostaId ? res.proposta : p)));
+      return { ok: true as const };
+    }
+    return { ok: false as const, error: res.error };
   }, []);
 
   const setTotalMoradores = useCallback(
@@ -153,6 +159,6 @@ export function useGovernance(): UseGovernanceResult {
 
   return {
     propostas, loading, emVotacao, aprovadas, fila, config, stats,
-    criarProposta, votar, encerrarVotacao, removerProposta, setTotalMoradores,
+    criarProposta, votar, encerrarVotacao, rejeitarProposta, setTotalMoradores,
   };
 }

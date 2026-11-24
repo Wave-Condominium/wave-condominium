@@ -54,6 +54,10 @@ export interface Proposta {
   votos: Record<string, VoteChoice>;
   encerradaEm?: string;
   aprovadaEm?: string;
+  /** Rejeição pelo síndico (SÍN-005): motivo, responsável e momento da decisão. */
+  motivoRejeicao?: string;
+  rejeitadaPor?: string;
+  rejeitadaEm?: string;
   comentarios?: ComentarioProposta[];
 }
 
