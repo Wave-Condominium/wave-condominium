@@ -32,6 +32,9 @@ const nextConfig = {
   reactStrictMode: true,
   // ADR 0004: imagem enxuta para o ECS. A Vercel ignora esta opção.
   output: "standalone",
+  // SEG-014: o app não usa next/image. Sem otimizador, o /_next/image deixa de
+  // processar imagens — fecha as RCE/DoS do Image Optimization API no Next 14.
+  images: { unoptimized: true },
   experimental: {
     serverActions: {
       allowedOrigins,
