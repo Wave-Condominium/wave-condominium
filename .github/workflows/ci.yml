@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
   pull_request:
@@ -84,7 +84,7 @@ jobs:
 
       - name: Upload do relatório de auditoria
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-audit-report
           path: npm-audit-report.json
@@ -98,7 +98,7 @@ jobs:
 
       - name: Upload do SBOM
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: sbom-cyclonedx
           path: sbom.cdx.json
@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload do relatório Semgrep
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: semgrep-report
           path: semgrep-report.json
